@@ -16,7 +16,7 @@ data_collector = DataCollector()
 portfolio_manager = PortfolioManager()
 
 # Title
-st.title("📈 ETF Portfolio Tracker")
+st.title("📈 장&손&이 자식들 대학보내기 프로젝트")
 
 # Sidebar
 with st.sidebar:
@@ -146,3 +146,4 @@ if not portfolio_df.empty:
 
 else:
     st.warning("Portfolio is empty. Please add assets to 'portfolio.xlsx'.")
+
