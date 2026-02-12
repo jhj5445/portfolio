@@ -1,0 +1,7 @@
+streamlit
+pandas
+finance-datareader
+openpyxl
+gspread
+plotly
+kaleido
