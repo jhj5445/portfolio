@@ -20,7 +20,7 @@ class DataManager:
             if not os.path.exists(self.file_path):
                 raise FileNotFoundError(f"{self.file_path} not found.")
             # Read 'Ticker' as string to preserve leading zeros
-            return pd.read_excel(self.file_path, sheet_name='Portfolio', dtype={'Ticker': str})
+            return pd.read_excel(self.file_path, sheet_name='Portfolio', dtype={'Ticker': str}, engine='openpyxl')
 
     def load_history(self):
         """Loads the 'History' sheet."""
@@ -32,7 +32,7 @@ class DataManager:
                 # Return empty dataframe if file/sheet doesn't exist
                 return pd.DataFrame(columns=['Date', 'Total_Asset', 'Profit_Rate', 'Memo'])
             try:
-                return pd.read_excel(self.file_path, sheet_name='History')
+                return pd.read_excel(self.file_path, sheet_name='History', engine='openpyxl')
             except ValueError:
                 # Sheet might not exist
                  return pd.DataFrame(columns=['Date', 'Total_Asset', 'Profit_Rate', 'Memo'])
@@ -55,7 +55,7 @@ class DataManager:
             
             # Load existing history
             try:
-                current_history = pd.read_excel(self.file_path, sheet_name='History')
+                current_history = pd.read_excel(self.file_path, sheet_name='History', engine='openpyxl')
             except ValueError:
                 current_history = pd.DataFrame(columns=['Date', 'Total_Asset', 'Profit_Rate', 'Memo'])
             
