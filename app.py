@@ -23,7 +23,7 @@ with st.sidebar:
     st.header("Settings")
     if st.button("🔄 Refresh Prices"):
         st.cache_data.clear()
-        st.experimental_rerun()
+        st.rerun()
     
     st.info("Edit 'portfolio.xlsx' to update holdings.")
     
@@ -83,7 +83,7 @@ if not portfolio_df.empty:
         else:
             data_manager.append_history(today, total_value, daily_return, "Manual Record")
             st.success("Recorded successfully!")
-            st.experimental_rerun()
+            st.rerun()
 
     # Charts & Tables
     col_left, col_right = st.columns([1, 1])
@@ -146,4 +146,3 @@ if not portfolio_df.empty:
 
 else:
     st.warning("Portfolio is empty. Please add assets to 'portfolio.xlsx'.")
-
