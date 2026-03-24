@@ -4,7 +4,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import re
 import traceback
 from datetime import date, timedelta
@@ -232,25 +233,50 @@ SYSTEM_INSTRUCTION = """
 # ─────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def download_data(ticker: str, start: str, end: str) -> pd.DataFrame:
-    """yfinance로 수정주가 포함 OHLCV 데이터 다운로드"""
-    df = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)
-    if df.empty:
-        return df
-    # 멀티인덱스 컬럼 평탄화
+    """yfinance로 수정주가 포함 OHLCV 데이터 다운로드 (최신 버전 멀티인덱스 호환)"""
+    try:
+        df = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # ── 멀티인덱스 컬럼 평탄화 ──────────────────────────────────────
+    # 최신 yfinance는 (Price, Ticker) 구조의 MultiIndex를 반환
+    # 예: ('Adj Close', 'TSLA'), ('Close', 'TSLA'), ...
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+        lvl0_samples = set(df.columns.get_level_values(0))
+        price_fields = {"Adj Close", "Close", "Open", "High", "Low", "Volume"}
+        if lvl0_samples & price_fields:
+            df.columns = df.columns.get_level_values(0)
+        else:
+            df.columns = df.columns.get_level_values(1)
+
+    # 컬럼명 문자열 정규화
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # ── Adj Close 없을 경우 Close로 대체 ────────────────────────────
+    if "Adj Close" not in df.columns:
+        if "Close" in df.columns:
+            df["Adj Close"] = df["Close"]
+        else:
+            return pd.DataFrame()
+
     df = df.dropna(subset=["Adj Close"])
     return df
 
 
 def call_gemini(api_key: str, strategy_text: str) -> str:
-    """Gemini API를 호출하여 백테스트 코드를 생성"""
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
-        system_instruction=SYSTEM_INSTRUCTION,
+    """Gemini API를 호출하여 백테스트 코드를 생성 (google-genai SDK)"""
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=strategy_text,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+        ),
     )
-    response = model.generate_content(strategy_text)
     return response.text
 
 
@@ -345,7 +371,6 @@ def build_chart(metrics: dict, ticker: str) -> go.Figure:
     bnh = metrics["bnh_series"]
     dd = metrics["drawdown_series"]
 
-    # 전략 수익률 라인
     fig.add_trace(
         go.Scatter(
             x=cum.index, y=(cum - 1) * 100,
@@ -358,7 +383,6 @@ def build_chart(metrics: dict, ticker: str) -> go.Figure:
         row=1, col=1,
     )
 
-    # B&H 수익률 라인
     fig.add_trace(
         go.Scatter(
             x=bnh.index, y=(bnh - 1) * 100,
@@ -369,7 +393,6 @@ def build_chart(metrics: dict, ticker: str) -> go.Figure:
         row=1, col=1,
     )
 
-    # 드로우다운
     fig.add_trace(
         go.Scatter(
             x=dd.index, y=dd * 100,
@@ -483,7 +506,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 전략 입력
 st.markdown('<p class="section-title">💡 투자 전략 입력</p>', unsafe_allow_html=True)
 strategy_examples = [
     "20일 이동평균선이 60일선을 상향 돌파하면 매수하고, 하향 이탈하면 매도해 줘.",
@@ -512,7 +534,6 @@ run_btn = st.button("🚀  백테스트 실행", use_container_width=True)
 # 실행 로직
 # ─────────────────────────────────────────────
 if run_btn:
-    # 입력 검증
     errors = []
     if not api_key:
         errors.append("⛔ 사이드바에서 **Gemini API Key**를 입력해 주세요.")
@@ -566,7 +587,6 @@ if run_btn:
             )
             st.stop()
 
-    # 필수 컬럼 검증
     required_cols = ["Signal", "Position", "Strategy_Return", "Cumulative_Return"]
     missing = [c for c in required_cols if c not in result_df.columns]
     if missing:
@@ -587,7 +607,6 @@ if run_btn:
     st.markdown("---")
     st.markdown("## 📊 백테스트 결과")
 
-    # ── 1단: 핵심 지표 ─────────────────────────
     st.markdown('<p class="section-title">🏆 핵심 성과 지표</p>', unsafe_allow_html=True)
     m1, m2, m3, m4, m5 = st.columns(5)
 
@@ -597,17 +616,12 @@ if run_btn:
     win_val = metrics["win_rate"] * 100
     sharpe_val = metrics["sharpe"]
 
-    # B&H CAGR 계산 (델타 비교용)
     bnh = metrics["bnh_series"]
     n_years_bnh = (bnh.index[-1] - bnh.index[0]).days / 365.25
     bnh_cagr = (bnh.iloc[-1] ** (1 / n_years_bnh) - 1) * 100 if n_years_bnh > 0 else 0
 
     with m1:
-        st.metric(
-            "CAGR",
-            f"{cagr_val:.2f}%",
-            delta=f"vs B&H {cagr_val - bnh_cagr:+.2f}%p",
-        )
+        st.metric("CAGR", f"{cagr_val:.2f}%", delta=f"vs B&H {cagr_val - bnh_cagr:+.2f}%p")
     with m2:
         st.metric("총 수익률", f"{total_ret:.2f}%")
     with m3:
@@ -617,7 +631,6 @@ if run_btn:
     with m5:
         st.metric("샤프비율", f"{sharpe_val:.2f}")
 
-    # 추가 지표 행
     st.markdown("")
     m6, m7, m8, m9 = st.columns(4)
     with m6:
@@ -630,16 +643,13 @@ if run_btn:
         bnh_total = (bnh.iloc[-1] - 1) * 100
         st.metric("B&H 총 수익률", f"{bnh_total:.2f}%")
 
-    # ── 2단: 누적 수익률 차트 ──────────────────
     st.markdown('<p class="section-title">📈 성과 차트</p>', unsafe_allow_html=True)
     fig = build_chart(metrics, ticker)
     st.plotly_chart(fig, use_container_width=True)
 
-    # ── 3단: 생성 코드 확인 ────────────────────
     with st.expander("🤖 Gemini가 생성한 백테스트 코드 보기", expanded=False):
         st.code(generated_code, language="python")
 
-    # ── 4단: 원본 데이터 미리보기 ──────────────
     with st.expander("📋 처리된 데이터 미리보기 (최근 10행)", expanded=False):
         display_cols = [c for c in ["Adj Close", "Signal", "Position", "Strategy_Return", "Cumulative_Return"] if c in result_df.columns]
         st.dataframe(
