@@ -1,7 +1,6 @@
-streamlit
-pandas
-finance-datareader
-openpyxl
-gspread
-plotly
-kaleido
+streamlit>=1.32.0
+google-genai>=1.0.0
+yfinance>=0.2.38
+pandas>=2.0.0
+numpy>=1.26.0
+plotly>=5.20.0
