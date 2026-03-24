@@ -271,7 +271,7 @@ def call_gemini(api_key: str, strategy_text: str) -> str:
     """Gemini API를 호출하여 백테스트 코드를 생성 (google-genai SDK)"""
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-3.1-flash",
+        model="gemini-3-flash-preview",
         contents=strategy_text,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
