@@ -1107,6 +1107,30 @@ if macro_df is not None and 'DFF' in macro_df.columns:
             st.stop()
         st.info(f"📅 리밸런싱 횟수: **{len(rebal_dates)}회** ({rebal_freq})")
 
+        # ── Step 3.5: 매크로 데이터 Fetch (연동 체크 시) ──
+        macro_df = None
+        macro_context = ""
+        if use_macro and macro_sel_ids and fred_api_key:
+            with st.spinner("🌐 FRED 매크로 지표 로드 중..."):
+                _macro_raw = {}
+                for sid in macro_sel_ids:
+                    s = fetch_fred_data(sid, fred_api_key, start_date=str(start_date))
+                    if not s.empty:
+                        _macro_raw[sid] = s
+                if _macro_raw:
+                    macro_df = pd.DataFrame(_macro_raw).ffill().dropna(how="all")
+                    _desc = ", ".join([
+                        f"{k}({v})"
+                        for cat in FRED_INDICATORS.values()
+                        for k, v in cat.items() if k in macro_df.columns
+                    ])
+                    macro_context = f"""
+
+[매크로 데이터 - macro_df 변수로 사용 가능]
+- 제공 지표: {_desc}
+- macro_df.loc[:rebal_date] 로 Look-ahead Bias 없이 접근 가능"""
+                    st.success(f"✅ 매크로 데이터 {len(macro_df.columns)}개 지표 로드 완료")
+
         # ── Step 4: Gemini 코드 생성 ─────────────────
         gemini_msg = f"""[전략]
 {strategy_port}
@@ -1116,7 +1140,7 @@ if macro_df is not None and 'DFF' in macro_df.columns:
 - 사용 가능 종목 예시: {', '.join(prices_df.columns[:15].tolist())} ... 등
 - 보유 종목 수(n_stocks): {n_stocks}
 - 리밸런싱 주기: {rebal_freq} (총 {len(rebal_dates)}회)
-- 기간: {start_date} ~ {end_date}"""
+- 기간: {start_date} ~ {end_date}{macro_context}"""
 
         with st.spinner("🤖 Gemini가 종목 선택 코드를 생성 중..."):
             try:
