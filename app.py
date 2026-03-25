@@ -488,7 +488,7 @@ def download_universe(tickers_csv: str, start: str, end: str):
 def call_gemini(api_key: str, user_message: str, system_prompt: str) -> str:
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-3-flash-preview",
         contents=user_message,
         config=types.GenerateContentConfig(system_instruction=system_prompt),
     )
