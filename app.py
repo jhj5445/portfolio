@@ -488,7 +488,7 @@ def download_universe(tickers_csv: str, start: str, end: str):
 def call_gemini(api_key: str, user_message: str, system_prompt: str) -> str:
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-3-flash-preview",
+        model="gemini-2.0-flash",
         contents=user_message,
         config=types.GenerateContentConfig(system_instruction=system_prompt),
     )
@@ -500,12 +500,29 @@ def extract_code(text: str) -> str:
     return "\n\n".join(matches).strip() if matches else text.strip()
 
 
+def _clean_code(code: str) -> str:
+    """
+    Gemini에서 import문이 생성되는 경우 자동 제거.
+    pd, np, math는 샌드박스에 이미 주입되어 있음.
+    """
+    cleaned = []
+    for line in code.split("\n"):
+        s = line.strip()
+        if s.startswith("import ") or (s.startswith("from ") and " import " in s):
+            # import문은 주석으로 체인지하고 무시 (필요 모듈은 샌드박스에서 직접 주입됨)
+            cleaned.append(f"# [auto-removed] {line}")
+        else:
+            cleaned.append(line)
+    return "\n".join(cleaned)
+
+
 # ─────────────────────────────────────────────
 # 코드 실행 (샌드박스)
 # ─────────────────────────────────────────────
 def _make_sandbox():
     return {
         "__builtins__": {
+            # 기본 빌트인
             "abs": abs, "all": all, "any": any, "bool": bool,
             "dict": dict, "enumerate": enumerate, "float": float,
             "int": int, "isinstance": isinstance, "len": len,
@@ -513,6 +530,8 @@ def _make_sandbox():
             "print": print, "range": range, "round": round,
             "set": set, "sorted": sorted, "str": str, "sum": sum,
             "tuple": tuple, "type": type, "zip": zip,
+            # Gemini가 import문을 사용할 경우 대비 (±안전: _clean_code가 제거하지만 알승이 대비)
+            "__import__": __import__,
         },
         "pd": pd,
         "np": np,
@@ -521,12 +540,14 @@ def _make_sandbox():
 
 
 def run_single_code(df: pd.DataFrame, code: str) -> pd.DataFrame:
+    code = _clean_code(code)
     local_vars = {"df": df.copy()}
     exec(code, _make_sandbox(), local_vars)
     return local_vars["df"]
 
 
 def run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, code) -> pd.DataFrame:
+    code = _clean_code(code)
     local_vars = {
         "prices_df": prices_df.copy(),
         "returns_df": returns_df.copy(),
