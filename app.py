@@ -483,16 +483,36 @@ def download_universe(tickers_csv: str, start: str, end: str):
 
 
 # ─────────────────────────────────────────────
-# Gemini API
+# Gemini API (Key 자동 로테이션)
 # ─────────────────────────────────────────────
-def call_gemini(api_key: str, user_message: str, system_prompt: str) -> str:
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=user_message,
-        config=types.GenerateContentConfig(system_instruction=system_prompt),
-    )
-    return response.text
+_RATE_LIMIT_SIGNALS = ("429", "Quota", "RESOURCE_EXHAUSTED", "Resource exhausted", "rate limit")
+
+
+def call_gemini(api_keys_list: list, user_message: str, system_prompt: str) -> str:
+    """
+    API 키 리스트를 순환하며 Gemini를 호출합니다.
+    429 / Quota 오류 발생 시 다음 키로 자동 전환합니다.
+    """
+    last_error = None
+    for idx, key in enumerate(api_keys_list):
+        try:
+            client = genai.Client(api_key=key.strip())
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=user_message,
+                config=types.GenerateContentConfig(system_instruction=system_prompt),
+            )
+            return response.text
+        except Exception as e:
+            last_error = e
+            err_str = str(e)
+            is_rate_limit = any(sig in err_str for sig in _RATE_LIMIT_SIGNALS)
+            if is_rate_limit and idx < len(api_keys_list) - 1:
+                # Rate Limit → 다음 키로 전환
+                continue
+            # 그 외 오류이거나 마지막 키면 루프 종료
+            break
+    raise last_error
 
 
 def extract_code(text: str) -> str:
@@ -752,8 +772,14 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown('<p class="section-title">🔑 API 설정</p>', unsafe_allow_html=True)
-    api_key = st.text_input("Gemini API Key", type="password", placeholder="AIza...",
-                            help="Google AI Studio에서 발급받은 API 키")
+    # Streamlit Secrets에서 API 키 자동 로드
+    _raw = st.secrets.get("GEMINI_API_KEYS", "")
+    api_keys_list = [k.strip() for k in _raw.split(",") if k.strip()]
+    if api_keys_list:
+        st.success(f"🔑 API Key **{len(api_keys_list)}개** 로드됨 (자동 로테이션 준비)")
+    else:
+        st.error("⛔ `GEMINI_API_KEYS` 시크릿 설정이 필요합니다.")
+
 
     st.markdown('<p class="section-title">📊 단일 종목 설정</p>', unsafe_allow_html=True)
     ticker = st.text_input("종목 코드 (Ticker)", value="AAPL",
@@ -832,7 +858,7 @@ with tab1:
 
     if run1:
         errs = []
-        if not api_key: errs.append("⛔ **Gemini API Key**를 입력해 주세요.")
+        if not api_keys_list: errs.append("⛔ **GEMINI_API_KEYS** 시크릿이 설정되지 않았습니다.")
         if not ticker: errs.append("⛔ **종목 코드**를 입력해 주세요.")
         if not strategy_single.strip(): errs.append("⛔ **투자 전략**을 입력해 주세요.")
         if start_date >= end_date: errs.append("⛔ **종료일**이 시작일보다 이후여야 합니다.")
@@ -850,7 +876,7 @@ with tab1:
 
         with st.spinner("🤖 Gemini가 백테스트 코드를 생성 중..."):
             try:
-                raw = call_gemini(api_key, strategy_single, SYSTEM_SINGLE)
+                raw = call_gemini(api_keys_list, strategy_single, SYSTEM_SINGLE)
                 code1 = extract_code(raw)
             except Exception as e:
                 st.error(f"❌ Gemini API 오류: {e}")
@@ -945,7 +971,7 @@ with tab2:
 
     if run2:
         errs = []
-        if not api_key: errs.append("⛔ **Gemini API Key**를 입력해 주세요.")
+        if not api_keys_list: errs.append("⛔ **GEMINI_API_KEYS** 시크릿이 설정되지 않았습니다.")
         if not strategy_port.strip(): errs.append("⛔ **종목 선택 전략**을 입력해 주세요.")
         if start_date >= end_date: errs.append("⛔ **종료일**이 시작일보다 이후여야 합니다.")
         for e in errs:
@@ -995,7 +1021,7 @@ with tab2:
 
         with st.spinner("🤖 Gemini가 종목 선택 코드를 생성 중..."):
             try:
-                raw2 = call_gemini(api_key, gemini_msg, SYSTEM_PORTFOLIO)
+                raw2 = call_gemini(api_keys_list, gemini_msg, SYSTEM_PORTFOLIO)
                 code2 = extract_code(raw2)
             except Exception as e:
                 st.error(f"❌ Gemini API 오류: {e}")
