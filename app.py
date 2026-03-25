@@ -10,6 +10,42 @@ import re
 import traceback
 import math
 from datetime import date, timedelta
+import requests
+
+# ─────────────────────────────────────────────
+# FRED 지표 카탈로그
+# ─────────────────────────────────────────────
+FRED_INDICATORS = {
+    "경기 사이클": {
+        "USSLIND": "미국 경기선행지수 (US Leading Economic Index)",
+        "USALOLITONOSTSAM": "OECD 경기선행지수",
+        "NAPM": "ISM 제조업 구매관리자지수 (PMI)",
+        "NMFCI": "시카고 연은 금융환경지수 (NFCI)"
+    },
+    "금리 및 스프레드": {
+        "DFF": "미국 기준금리 (Fed Funds Rate)",
+        "T10Y2Y": "장단기 금리차 (10년 - 2년)",
+        "DGS10": "미국 10년물 국채 금리",
+        "BAMLH0A0HYM2": "하이일드 채권 스프레드"
+    },
+    "물가 / 인플레이션": {
+        "CPIAUCSL": "소비자물가지수 (CPI)",
+        "CPILFESL": "근원 소비자물가지수 (Core CPI)",
+        "PCEPI": "개인소비지출 (PCE)",
+        "T10YIE": "10년 기대인플레이션"
+    },
+    "고용 시장": {
+        "PAYEMS": "비농업 고용자수 (Nonfarm Payrolls)",
+        "UNRATE": "실업률 (Unemployment Rate)",
+        "ICSA": "신규 실업수당 청구건수"
+    },
+    "통화량 및 실물경기": {
+        "M2SL": "M2 통화량",
+        "WALCL": "연준 총 자산규모",
+        "RSXFS": "미국 소매판매액"
+    }
+}
+
 
 # ─────────────────────────────────────────────
 # 페이지 설정
@@ -422,8 +458,41 @@ def get_rebal_dates(price_index: pd.DatetimeIndex, freq: str) -> pd.DatetimeInde
 
 
 # ─────────────────────────────────────────────
-# 데이터 다운로드
+# 데이터 다운로드 (yfinance + FRED)
 # ─────────────────────────────────────────────
+@st.cache_data(ttl=3600 * 24, show_spinner=False)
+def fetch_fred_data(series_id: str, api_key: str, start_date: str = "2000-01-01") -> pd.Series:
+    """FRED API에서 특정 시리즈의 시계열 데이터를 가져옵니다."""
+    url = f"https://api.stlouisfed.org/fred/series/observations"
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "observation_start": start_date,
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if "observations" not in data:
+            return pd.Series(dtype=float)
+            
+        obs = data["observations"]
+        # "." 으로 표시되는 결측치 필터링
+        df = pd.DataFrame([{"date": pd.to_datetime(d["date"]), "value": float(d["value"])} 
+                          for d in obs if d["value"] != "."])
+        if df.empty:
+            return pd.Series(dtype=float)
+            
+        df.set_index("date", inplace=True)
+        return df["value"]
+        
+    except Exception as e:
+        return pd.Series(dtype=float) # 에러는 UI에서 처리
+
+
 @st.cache_data(show_spinner=False)
 def download_single(ticker: str, start: str, end: str) -> pd.DataFrame:
     """단일 종목 다운로드 (최신 yfinance 멀티인덱스 호환)"""
@@ -776,10 +845,12 @@ with st.sidebar:
     _raw = st.secrets.get("GEMINI_API_KEYS", "")
     api_keys_list = [k.strip() for k in _raw.split(",") if k.strip()]
     if api_keys_list:
-        st.success(f"🔑 API Key **{len(api_keys_list)}개** 로드됨 (자동 로테이션 준비)")
+        st.success(f"🔑 Gemini API Key **{len(api_keys_list)}개** 로드됨")
     else:
         st.error("⛔ `GEMINI_API_KEYS` 시크릿 설정이 필요합니다.")
-
+        
+    fred_api_key = st.text_input("FRED API Key", value=st.secrets.get("FRED_API_KEY", ""),
+                                 type="password", placeholder="FRED API 키 입력")
 
     st.markdown('<p class="section-title">📊 단일 종목 설정</p>', unsafe_allow_html=True)
     ticker = st.text_input("종목 코드 (Ticker)", value="AAPL",
@@ -822,7 +893,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["📊 단일 종목 백테스트", "🌍 포트폴리오 유니버스 백테스트"])
+tab1, tab2, tab3 = st.tabs(["📊 단일 종목 백테스트", "🌍 포트폴리오 유니버스 백테스트", "🌐 매크로 대시보드"])
 
 
 # ══════════════════════════════════════════════
@@ -1087,3 +1158,83 @@ with tab2:
 
         with st.expander("🤖 Gemini 생성 코드 보기"):
             st.code(code2, language="python")
+
+
+# ══════════════════════════════════════════════
+# TAB 3 — 매크로 대시보드
+# ══════════════════════════════════════════════
+with tab3:
+    st.markdown('<p class="section-title">📡 FRED 매크로 지표 확인 및 국면 분석</p>', unsafe_allow_html=True)
+    
+    if not fred_api_key:
+        st.warning("⚠️ 사이드바에 **FRED API Key**를 입력해야 매크로 데이터를 불러올 수 있습니다.")
+        
+    c1, c2 = st.columns([1, 2])
+    
+    with c1:
+        st.markdown("#### 1. 지표 조회")
+        selected_category = st.selectbox("카테고리 선택", list(FRED_INDICATORS.keys()))
+        
+        indicators_in_cat = FRED_INDICATORS[selected_category]
+        selected_indicators = st.multiselect(
+            "조회할 지표 선택 (다중 선택 가능)",
+            options=list(indicators_in_cat.keys()),
+            format_func=lambda x: f"{x} - {indicators_in_cat[x]}",
+            default=list(indicators_in_cat.keys())[:2] if indicators_in_cat else []
+        )
+        
+        load_macro = st.button("📊 데이터 조회 및 시각화", use_container_width=True)
+        
+    with c2:
+        st.info("""
+        **💡 핵심 매크로 지표 가이드**
+        - **경기선행지수 (USSLIND)**: 향후 3~6개월 뒤의 경기 방향성을 예고합니다.
+        - **장단기 금리차 (T10Y2Y)**: 0 이하면 장단기 금리 역전으로, 역사적으로 경기 침체의 강력한 선행 신호입니다.
+        - **하이일드 스프레드 (BAMLH0A0HYM2)**: 기업들의 신용 위험을 나타냅니다. 스프레드 급등 시 위험자산 회피(Risk-off) 신호입니다.
+        - **기준금리 (DFF)**: 연준의 유동성 공급/축소 사이클을 나타내며, 금리 하락 전환 시 회복기(Recovery)로 전환되는 경향이 있습니다.
+        """)
+
+    if load_macro:
+        if not fred_api_key:
+            st.error("⛔ FRED API Key를 먼저 입력해 주세요.")
+        elif not selected_indicators:
+            st.warning("⚠️ 조회할 지표를 최소 1개 이상 선택해 주세요.")
+        else:
+            with st.spinner("🌐 FRED API에서 데이터를 로드 중입니다..."):
+                macro_data = {}
+                for ind in selected_indicators:
+                    s = fetch_fred_data(ind, fred_api_key, start_date=str(start_date))
+                    if not s.empty:
+                        macro_data[ind] = s
+                
+                if macro_data:
+                    macro_df = pd.DataFrame(macro_data).ffill().dropna(how='all')
+                    
+                    st.markdown("### 📈 매크로 지표 추이")
+                    fig = make_subplots(rows=len(macro_data), cols=1, shared_xaxes=True, vertical_spacing=0.08)
+                    
+                    for i, col in enumerate(macro_df.columns):
+                        series_name = FRED_INDICATORS[selected_category].get(col, col)
+                        fig.add_trace(go.Scatter(
+                            x=macro_df.index, y=macro_df[col],
+                            name=series_name,
+                            mode='lines',
+                            line=dict(width=2)
+                        ), row=i+1, col=1)
+                        fig.update_yaxes(title_text=col, title_font=dict(size=10), row=i+1, col=1)
+                        
+                    fig.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        height=300 * len(macro_data),
+                        hovermode="x unified",
+                        showlegend=False,
+                        margin=dict(l=10, r=10, t=30, b=10)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    with st.expander("관련 데이터 원본 보기"):
+                        st.dataframe(macro_df.sort_index(ascending=False), use_container_width=True)
+                else:
+                    st.error("❌ 선택한 지표의 데이터를 가져오지 못했습니다. API Key나 날짜 설정을 확인해주세요.")
+
