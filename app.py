@@ -635,13 +635,14 @@ def run_single_code(df: pd.DataFrame, code: str) -> pd.DataFrame:
     return local_vars["df"]
 
 
-def run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, code) -> pd.DataFrame:
+def run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, code, macro_df=None) -> pd.DataFrame:
     code = _clean_code(code)
     local_vars = {
         "prices_df": prices_df.copy(),
         "returns_df": returns_df.copy(),
         "rebal_dates": rebal_dates,
         "n_stocks": n_stocks,
+        "macro_df": macro_df,          # FRED 매크로 데이터 (None 가능)
     }
     exec(code, _make_sandbox(), local_vars)
     return local_vars["holdings_df"]
@@ -1038,6 +1039,33 @@ with tab2:
     benchmark_map = {"NASDAQ-100": "QQQ", "S&P 500": "SPY"}
     benchmark_ticker = benchmark_map[universe]
 
+    # ── 매크로 데이터 연동 (옵션) ──
+    with st.expander("🌐 매크로 데이터 연동 (FRED) — 선택 사항", expanded=False):
+        use_macro = st.checkbox("매크로 데이터를 전략에 활용하기 (macro_df 변수로 주입)", value=False)
+        if use_macro:
+            if not fred_api_key:
+                st.warning("⚠️ 사이드바에 FRED API Key를 먼저 입력하세요.")
+            st.markdown("**사용할 FRED 지표 선택:**")
+            macro_cat_sel = st.selectbox("카테고리", list(FRED_INDICATORS.keys()), key="tab2_macro_cat")
+            avail = FRED_INDICATORS[macro_cat_sel]
+            macro_sel_ids = st.multiselect(
+                "지표 선택",
+                list(avail.keys()),
+                format_func=lambda x: f"{x} — {avail[x]}",
+                default=list(avail.keys())[:2],
+                key="tab2_macro_ids",
+            )
+            st.caption("선택한 지표들이 `macro_df` DataFrame으로 Gemini 코드 내에서 사용 가능해집니다.")
+            st.code("""
+# Gemini가 생성하는 코드에서 직접 ↓ 이렇게 사용 가능
+if macro_df is not None and 'DFF' in macro_df.columns:
+    fed = macro_df['DFF'].loc[:rebal_date].dropna()
+    rate_change = fed.diff(3).iloc[-1]  # 3개월 금리 변화량
+    regime = 'expansion' if rate_change < 0.25 else 'depression'
+            """, language="python")
+        else:
+            macro_sel_ids = []
+
     run2 = st.button("🚀  포트폴리오 백테스트 실행", key="run2", use_container_width=True)
 
     if run2:
@@ -1102,7 +1130,8 @@ with tab2:
         with st.spinner("⚡ 종목 선택 로직 실행 중..."):
             try:
                 raw_holdings = run_portfolio_code(
-                    prices_df, returns_df, rebal_dates, n_stocks, code2
+                    prices_df, returns_df, rebal_dates, n_stocks, code2,
+                    macro_df=macro_df,      # FRED 매크로 데이터 (None이면 미사용)
                 )
                 holdings_df = normalize_holdings(raw_holdings, prices_df, rebal_dates, n_stocks)
             except Exception:
