@@ -304,12 +304,74 @@ holdings_df: DataFrame
 """.strip()
 
 
-# ─────────────────────────────────────────────
-# 유니버스 티커 수집
-# ─────────────────────────────────────────────
+# ── 하드코딩 폴백 (Wikipedia 접근 불가 시 사용) ────────────────────────
+_NASDAQ100 = sorted([
+    "AAPL","ABNB","ADBE","ADI","ADP","ADSK","AEP","AMAT","AMD","AMGN",
+    "AMZN","ANSS","ARM","ASML","AVGO","AXON","AZN","BIIB","BKR","CCEP",
+    "CDNS","CDW","CEG","CHTR","CMCSA","COST","CPRT","CRWD","CSCO","CSGP",
+    "CSX","CTAS","CTSH","DDOG","DLTR","DXCM","EA","EXC","FANG","FAST",
+    "FTNT","GEHC","GFS","GILD","GOOG","GOOGL","HON","IDXX","ILMN","INTC",
+    "INTU","ISRG","KDP","KHC","KLAC","LIN","LRCX","LULU","MAR","MCHP",
+    "MDB","MDLZ","META","MNST","MRNA","MRVL","MSFT","MU","NFLX","NVDA",
+    "NXPI","ODFL","ON","ORLY","PANW","PAYX","PCAR","PDD","PEP","PYPL",
+    "QCOM","REGN","ROP","ROST","SBUX","SIRI","SMCI","SNPS","SPLK","TEAM",
+    "TMUS","TSLA","TTD","TTWO","TXN","VRSK","VRTX","WBA","WBD","WDAY",
+    "XEL","ZS",
+])
+
+_SP500_SAMPLE = sorted([
+    "A","AAL","AAP","AAPL","ABBV","ABC","ABMD","ABT","ACN","ADBE","ADI","ADM",
+    "ADP","ADSK","AEE","AEP","AES","AFL","AIG","AIZ","AJG","AKAM","ALB","ALGN",
+    "ALL","ALLE","AMAT","AMCR","AMD","AME","AMGN","AMP","AMT","AMZN","ANET",
+    "ANSS","AON","AOS","APD","APH","APTV","ARE","ATO","AVB","AVGO","AVY","AWK",
+    "AXP","AZO","BA","BAC","BALL","BAX","BBWI","BBY","BDX","BEN","BF-B","BIIB",
+    "BIO","BK","BKNG","BKR","BLK","BMY","BR","BRK-B","BRO","BSX","BWA","BXP",
+    "C","CAG","CAH","CARR","CAT","CB","CBOE","CBRE","CCI","CCL","CDNS","CDW",
+    "CE","CEG","CF","CFG","CHD","CHRW","CHTR","CI","CINF","CL","CLX","CMA","CMCSA",
+    "CME","CMG","CMI","CMS","CNC","CNP","COF","COO","COP","COST","CPB","CPRT",
+    "CPT","CRL","CRM","CSCO","CSGP","CSX","CTAS","CTLT","CTSH","CTVA","CVS","CVX",
+    "D","DAL","DAY","DD","DE","DECK","DFS","DG","DGX","DHI","DHR","DIS","DLTR",
+    "DOC","DOV","DOW","DPZ","DRI","DTE","DUK","DVA","DVN","DXC","DXCM",
+    "EA","EBAY","ECL","ED","EFX","EG","EIX","EL","ELV","EMN","EMR","ENPH",
+    "EOG","EPAM","EQIX","EQR","EQT","ES","ESS","ETN","ETR","EVRG","EW","EXC","EXPD","EXPE",
+    "F","FANG","FAST","FCX","FDS","FDX","FE","FFIV","FI","FICO","FIS","FITB",
+    "FLT","FMC","FOX","FOXA","FRT","FSLR","FTNT","FTV",
+    "GD","GE","GEHC","GEN","GEV","GILD","GIS","GL","GLW","GM","GNRC","GOOG","GOOGL",
+    "GPC","GPN","GRMN","GS","GWW",
+    "HAL","HAS","HBAN","HCA","HD","HES","HIG","HII","HLT","HOLX","HON","HPE","HPQ",
+    "HRL","HSIC","HST","HSY","HUBB","HUM","HWM",
+    "IBM","ICE","IDXX","IEX","IFF","ILMN","INCY","INTC","INTU","INVH","IP","IPG",
+    "IQV","IR","IRM","ISRG","IT","ITW","IVZ",
+    "J","JBHT","JBL","JCI","JKHY","JNJ","JNPR","JPM",
+    "K","KDP","KEY","KEYS","KHC","KIM","KLAC","KMB","KMI","KMX","KO","KR",
+    "L","LDOS","LEN","LH","LHX","LIN","LKQ","LLY","LMT","LNT","LOW","LRCX","LULU","LUV","LVS","LW","LYB","LYV",
+    "MA","MAA","MAR","MAS","MCD","MCHP","MCK","MCO","MDLZ","MDT","MET","META","MGM",
+    "MHK","MKC","MKTX","MLM","MMC","MMM","MNST","MO","MOH","MOS","MPC","MPWR","MRK",
+    "MRNA","MRO","MS","MSCI","MSFT","MSI","MTB","MTCH","MTD","MU","NCLH","NDAQ",
+    "NEE","NEM","NFLX","NI","NKE","NOC","NOW","NRG","NSC","NTAP","NTRS","NUE","NVDA","NVR","NWS","NWSA",
+    "O","ODFL","OKE","OMC","ON","ORCL","ORLY","OXY",
+    "PANW","PARA","PAYC","PAYX","PCAR","PCG","PEG","PEP","PFE","PFG","PG","PGR",
+    "PH","PHM","PKG","PLD","PM","PNC","PNR","PNW","PODD","POOL","PPG","PPL",
+    "PRU","PSA","PSX","PTC","PWR","PXD","PYPL",
+    "QCOM","QRVO",
+    "RCL","REG","REGN","RF","RJF","RL","RMD","ROK","ROL","ROP","ROST","RSG","RTX",
+    "SBAC","SBUX","SCHW","SEDG","SEE","SHW","SJM","SLB","SNA","SNPS","SO","SPG",
+    "SPGI","SRE","STE","STLD","STT","STX","STZ","SWK","SWKS","SYF","SYK","SYY",
+    "T","TAP","TDG","TDY","TECH","TEL","TER","TFC","TFX","TGT","TJX","TMO","TMUS",
+    "TPR","TRGP","TRMB","TROW","TRV","TSCO","TSLA","TSN","TT","TTWO","TXN","TXT","TYL",
+    "UAL","UDR","UHS","ULTA","UNH","UNP","UPS","URI","USB",
+    "V","VFC","VICI","VLO","VLTO","VMC","VRSK","VRSN","VRTX","VTR","VTRS",
+    "WAB","WAT","WBA","WBD","WDC","WEC","WELL","WFC","WHR","WM","WMB","WMT",
+    "WRB","WST","WTW","WY",
+    "XEL","XOM","XYL",
+    "YUM",
+    "ZBH","ZBRA","ZTS",
+])
+
+
 @st.cache_data(ttl=3600 * 24, show_spinner=False)
 def get_universe_tickers(universe: str) -> list:
-    """Wikipedia에서 지수 구성종목 티커 수집 (24시간 캐시)"""
+    """지수 구성종목 티커 수집 (Wikipedia → 실패 시 하드코딩 폴백)"""
     try:
         if universe == "NASDAQ-100":
             tables = pd.read_html("https://en.wikipedia.org/wiki/Nasdaq-100")
@@ -317,7 +379,8 @@ def get_universe_tickers(universe: str) -> list:
                 for col in ["Ticker", "Symbol", "Ticker symbol"]:
                     if col in t.columns:
                         raw = t[col].dropna().astype(str).str.strip().tolist()
-                        tickers = [x.replace(".", "-") for x in raw if len(x) <= 6 and x.isalpha() or "-" in x]
+                        tickers = [x.replace(".", "-") for x in raw
+                                   if (len(x) <= 6 and x.isalpha()) or "-" in x]
                         if len(tickers) > 50:
                             return sorted(tickers)
         elif universe == "S&P 500":
@@ -326,7 +389,13 @@ def get_universe_tickers(universe: str) -> list:
             return sorted([x.replace(".", "-") for x in raw])
     except Exception:
         pass
-    return []
+
+    # Wikipedia 접근 실패 → 하드코딩 폴백
+    if universe == "NASDAQ-100":
+        return _NASDAQ100
+    else:
+        return _SP500_SAMPLE
+
 
 
 def get_rebal_dates(price_index: pd.DatetimeIndex, freq: str) -> pd.DatetimeIndex:
