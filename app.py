@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 import re
 import traceback
+import math
 from datetime import date, timedelta
 
 # ─────────────────────────────────────────────
@@ -20,179 +21,237 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+TRANSACTION_COST = 0.002  # 0.2% per trade side
+
 # ─────────────────────────────────────────────
-# CSS 스타일링
+# CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500&display=swap');
+
+/* ── Google 색상 팔레트 ──────────────────────
+   Blue  #4285F4 · Red   #EA4335
+   Yellow#FBBC05 · Green #34A853
+   ──────────────────────────────────────────── */
 
 html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Roboto', 'Google Sans', sans-serif;
 }
 
-/* 다크 배경 */
+/* 전체 배경 */
 .stApp {
-    background: linear-gradient(135deg, #0d0f1a 0%, #0f1623 50%, #0d1520 100%);
+    background: #f8f9fa;
     min-height: 100vh;
 }
 
 /* 사이드바 */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0a0e1a 0%, #0f1829 100%);
-    border-right: 1px solid rgba(99, 179, 237, 0.15);
+    background: #ffffff;
+    border-right: 1px solid #e8eaed;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
 }
 [data-testid="stSidebar"] .stTextInput > div > div > input,
 [data-testid="stSidebar"] .stNumberInput > div > div > input,
 [data-testid="stSidebar"] .stDateInput > div > div > input {
-    background: rgba(15, 25, 50, 0.8);
-    border: 1px solid rgba(99, 179, 237, 0.25);
-    color: #e2e8f0;
+    background: #f8f9fa;
+    border: 1px solid #dadce0;
+    color: #202124;
     border-radius: 8px;
+    font-size: 0.9rem;
 }
-[data-testid="stSidebar"] label, [data-testid="stSidebar"] p {
-    color: #94a3b8 !important;
-    font-size: 0.85rem;
+[data-testid="stSidebar"] .stTextInput > div > div > input:focus,
+[data-testid="stSidebar"] .stNumberInput > div > div > input:focus {
+    border-color: #4285F4 !important;
+    box-shadow: 0 0 0 2px rgba(66,133,244,0.15) !important;
+}
+[data-testid="stSidebar"] label {
+    color: #5f6368 !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
 }
 
-/* 헤더 */
+/* 히어로 헤더 */
 .hero-header {
-    background: linear-gradient(135deg, rgba(99,179,237,0.08) 0%, rgba(129,140,248,0.08) 50%, rgba(167,243,208,0.05) 100%);
-    border: 1px solid rgba(99,179,237,0.2);
+    background: #ffffff;
+    border: none;
     border-radius: 16px;
-    padding: 32px 40px;
-    margin-bottom: 28px;
+    padding: 28px 36px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(60,64,67,0.1), 0 4px 12px rgba(60,64,67,0.06);
     position: relative;
     overflow: hidden;
 }
 .hero-header::before {
     content: '';
     position: absolute;
-    top: -50%;
-    right: -10%;
-    width: 300px;
-    height: 300px;
-    background: radial-gradient(circle, rgba(99,179,237,0.08) 0%, transparent 70%);
-    pointer-events: none;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #4285F4 25%, #EA4335 25% 50%, #FBBC05 50% 75%, #34A853 75%);
 }
 .hero-title {
-    font-size: 2.2rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #63b3ed, #818cf8, #a7f3d0);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin: 0 0 8px 0;
+    font-size: 2rem; font-weight: 700;
+    color: #202124;
+    margin: 8px 0 6px 0;
+    font-family: 'Google Sans', 'Roboto', sans-serif;
+    letter-spacing: -0.5px;
 }
 .hero-sub {
-    color: #64748b;
-    font-size: 1rem;
+    color: #5f6368;
+    font-size: 0.95rem;
     margin: 0;
 }
 
-/* 전략 입력창 */
+/* 텍스트 에어리어 */
 .stTextArea > div > div > textarea {
-    background: rgba(10, 15, 35, 0.9) !important;
-    border: 1px solid rgba(99, 179, 237, 0.3) !important;
-    color: #e2e8f0 !important;
+    background: #ffffff !important;
+    border: 1px solid #dadce0 !important;
+    color: #202124 !important;
     border-radius: 12px !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Roboto', sans-serif !important;
     font-size: 0.95rem !important;
     line-height: 1.6 !important;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .stTextArea > div > div > textarea:focus {
-    border-color: rgba(99, 179, 237, 0.7) !important;
-    box-shadow: 0 0 0 3px rgba(99, 179, 237, 0.1) !important;
+    border-color: #4285F4 !important;
+    box-shadow: 0 0 0 2px rgba(66,133,244,0.15) !important;
 }
 
-/* 실행 버튼 */
+/* 버튼 — Google Blue */
 .stButton > button {
-    background: linear-gradient(135deg, #3b82f6, #6366f1) !important;
+    background: #4285F4 !important;
     color: white !important;
     border: none !important;
-    border-radius: 10px !important;
-    padding: 14px 36px !important;
-    font-weight: 600 !important;
-    font-size: 1rem !important;
-    letter-spacing: 0.5px !important;
+    border-radius: 24px !important;
+    padding: 12px 32px !important;
+    font-weight: 500 !important;
+    font-size: 0.95rem !important;
     width: 100% !important;
+    letter-spacing: 0.25px !important;
+    box-shadow: 0 1px 3px rgba(66,133,244,0.3), 0 4px 8px rgba(66,133,244,0.15) !important;
     transition: all 0.2s ease !important;
-    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.35) !important;
+    font-family: 'Google Sans', 'Roboto', sans-serif !important;
 }
 .stButton > button:hover {
+    background: #1a73e8 !important;
+    box-shadow: 0 2px 6px rgba(26,115,232,0.4), 0 6px 16px rgba(26,115,232,0.2) !important;
     transform: translateY(-1px) !important;
-    box-shadow: 0 6px 28px rgba(59, 130, 246, 0.5) !important;
 }
 
 /* 메트릭 카드 */
 [data-testid="stMetric"] {
-    background: linear-gradient(135deg, rgba(15,25,50,0.9) 0%, rgba(20,30,60,0.9) 100%);
-    border: 1px solid rgba(99,179,237,0.18);
+    background: #ffffff;
+    border: 1px solid #e8eaed;
     border-radius: 12px;
     padding: 20px !important;
-    transition: border-color 0.2s ease;
+    box-shadow: 0 1px 3px rgba(60,64,67,0.08);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 [data-testid="stMetric"]:hover {
-    border-color: rgba(99,179,237,0.4);
+    box-shadow: 0 2px 8px rgba(60,64,67,0.15);
+    border-color: #4285F4;
 }
 [data-testid="stMetricLabel"] {
-    color: #64748b !important;
-    font-size: 0.8rem !important;
+    color: #5f6368 !important;
+    font-size: 0.76rem !important;
     text-transform: uppercase;
     letter-spacing: 1px;
+    font-weight: 500 !important;
 }
 [data-testid="stMetricValue"] {
-    color: #e2e8f0 !important;
-    font-size: 1.6rem !important;
+    color: #202124 !important;
+    font-size: 1.5rem !important;
     font-weight: 700 !important;
 }
-[data-testid="stMetricDelta"] {
-    font-size: 0.85rem !important;
-}
+[data-testid="stMetricDelta"] { font-size: 0.82rem !important; }
+[data-testid="stMetricDelta"] > div[data-testid="stMetricDeltaIcon-Up"] { color: #34A853 !important; }
+[data-testid="stMetricDelta"] > div[data-testid="stMetricDeltaIcon-Down"] { color: #EA4335 !important; }
 
 /* 섹션 제목 */
 .section-title {
-    color: #94a3b8;
-    font-size: 0.75rem;
+    color: #5f6368;
+    font-size: 0.72rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 2px;
-    margin: 24px 0 14px 0;
+    letter-spacing: 1.5px;
+    margin: 20px 0 12px 0;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(99,179,237,0.1);
+    border-bottom: 2px solid #4285F4;
+    display: inline-block;
 }
 
-/* 알림/에러 박스 */
-.stAlert {
-    border-radius: 10px !important;
+/* 수수료 뱃지 */
+.cost-badge {
+    background: #fef7e0;
+    border: 1px solid #FBBC05;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #b37600;
+    font-size: 0.82rem;
+    font-weight: 500;
+    margin-top: 8px;
 }
 
 /* Expander */
 .stExpander {
-    background: rgba(10, 15, 30, 0.6) !important;
-    border: 1px solid rgba(99,179,237,0.15) !important;
+    background: #ffffff !important;
+    border: 1px solid #e8eaed !important;
     border-radius: 10px !important;
+    box-shadow: 0 1px 3px rgba(60,64,67,0.06) !important;
 }
+
+/* 성공/에러 알림 */
+.stSuccess { border-left: 4px solid #34A853 !important; background: #e6f4ea !important; }
+.stError   { border-left: 4px solid #EA4335 !important; background: #fce8e6 !important; }
+.stInfo    { border-left: 4px solid #4285F4 !important; background: #e8f0fe !important; }
+.stWarning { border-left: 4px solid #FBBC05 !important; background: #fef7e0 !important; }
 
 /* 사이드바 브랜드 */
 .sidebar-brand {
     text-align: center;
-    padding: 16px 0 24px 0;
-    border-bottom: 1px solid rgba(99,179,237,0.1);
-    margin-bottom: 20px;
+    padding: 14px 0 20px 0;
+    border-bottom: 1px solid #e8eaed;
+    margin-bottom: 18px;
 }
 .sidebar-brand-title {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     font-weight: 700;
-    background: linear-gradient(135deg, #63b3ed, #818cf8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #202124;
+    font-family: 'Google Sans', sans-serif;
+    letter-spacing: -0.3px;
 }
-.sidebar-brand-sub {
-    font-size: 0.72rem;
-    color: #475569;
-    margin-top: 4px;
+.sidebar-brand-title span.g-b { color: #4285F4; }
+.sidebar-brand-title span.g-r { color: #EA4335; }
+.sidebar-brand-title span.g-y { color: #FBBC05; }
+.sidebar-brand-title span.g-g { color: #34A853; }
+.sidebar-brand-sub { font-size: 0.7rem; color: #9aa0a6; margin-top: 3px; }
+
+/* 탭 스타일 */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent;
+    border-bottom: 2px solid #e8eaed;
+    gap: 0;
 }
+.stTabs [data-baseweb="tab"] {
+    color: #5f6368 !important;
+    font-weight: 500;
+    padding: 12px 24px;
+    border-radius: 0;
+    font-size: 0.9rem;
+}
+.stTabs [aria-selected="true"] {
+    color: #4285F4 !important;
+    border-bottom: 2px solid #4285F4;
+    background: transparent !important;
+}
+
+/* 데이터프레임 */
+.stDataFrame { border-radius: 10px; overflow: hidden; border: 1px solid #e8eaed; }
+
+/* 일반 텍스트 */
+p, li, span { color: #3c4043; }
+h1, h2, h3 { color: #202124; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -200,240 +259,395 @@ html, body, [class*="css"] {
 # ─────────────────────────────────────────────
 # 시스템 프롬프트
 # ─────────────────────────────────────────────
-SYSTEM_INSTRUCTION = """
+SYSTEM_SINGLE = """
 너는 파이썬 기반의 전문 퀀트 투자 개발자야.
-사용자가 자연어로 투자 전략을 설명하면, 이를 바탕으로 pandas 백테스트 코드를 작성해.
+사용자가 자연어로 투자 전략을 설명하면, 이를 실행 가능한 pandas 백테스트 코드로 변환해.
 
-[환경 및 전제조건]
-1. 주가 데이터는 이미 `df`라는 pandas DataFrame 변수에 로드되어 있다. (데이터 다운로드 코드 작성 금지)
-2. `df`의 주요 컬럼은 ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'] 이다.
-3. 주가 분할 및 배당이 반영된 정확한 테스트를 위해, 모든 진입/청산 가격과 수익률 계산은 반드시 `Adj Close`(수정주가)를 기준으로 해라.
-4. 복잡한 백테스트 라이브러리(Backtrader 등)는 절대 사용하지 말고, 오직 `pandas`와 `numpy`의 벡터화 연산만 사용해라.
+[환경]
+- `df`: pandas DataFrame (인덱스=날짜, 컬럼=['Open','High','Low','Close','Adj Close','Volume'])
+- 데이터 다운로드 코드 작성 금지. 오직 pandas, numpy만 사용.
 
-[작성해야 할 코드의 구조]
-아래 변수들이 `df`의 새로운 컬럼으로 최종 계산되도록 코드를 작성해라:
-- `df['Signal']`: 매수 신호 1, 매도/관망 신호 0
-- `df['Position']`: 미래 참조(Look-ahead Bias)를 막기 위해 반드시 `df['Signal'].shift(1)`을 사용하여 실제 보유 상태를 계산해라.
-- `df['Strategy_Return']`: 매일의 전략 수익률 (`df['Adj Close'].pct_change()` * `df['Position']`)
-- `df['Cumulative_Return']`: 누적 수익률 (`(1 + df['Strategy_Return']).cumprod()`)
+[출력 컬럼 (필수)]
+- df['Signal']: 매수=1, 관망=0
+- df['Position']: 반드시 df['Signal'].shift(1) 사용 (Look-ahead Bias 방지)
+- df['Strategy_Return']: df['Adj Close'].pct_change() * df['Position']
+- df['Cumulative_Return']: (1 + df['Strategy_Return']).cumprod()
+
+[출력 형식]
+- 오직 ```python ... ``` 코드 블록만 출력. 설명 없음. print/plt.show 금지.
+""".strip()
+
+SYSTEM_PORTFOLIO = """
+너는 파이썬 기반의 전문 포트폴리오 퀀트 투자 개발자야.
+사용자가 자연어로 종목 선택 전략을 설명하면, 이를 pandas 코드로 변환해.
+
+[환경 - 이미 정의된 변수들]
+- prices_df: DataFrame (인덱스=날짜, 컬럼=종목코드, 값=Adj Close 수정주가)
+- returns_df: DataFrame (prices_df.pct_change() 일간 수익률)
+- rebal_dates: pd.DatetimeIndex (리밸런싱 날짜 목록)
+- n_stocks: int (매 리밸런싱 시 보유할 종목 수)
+- 데이터 다운로드/import 코드 작성 금지. 오직 pandas, numpy만 사용.
+
+[출력 - 필수 생성 변수]
+holdings_df: DataFrame
+  - index = rebal_dates
+  - columns = prices_df.columns (종목코드)
+  - values = 1 (보유) 또는 0 (미보유)
+  - 각 행에서 1의 합계 == n_stocks (정확히)
 
 [Look-ahead Bias 방지 - 매우 중요]
-- 신호가 발생한 당일 종가로 바로 매수하지 않도록, 반드시 Position = Signal.shift(1) 을 사용해라.
-- 이동평균선 등의 지표 계산 시 .rolling().mean() 등 과거 데이터만 사용해라.
+각 rebal_date에서 반드시 해당 날짜 이전 데이터만 사용:
+  prices_df.loc[:rebal_date] 또는 returns_df.loc[:rebal_date]
 
-[출력 형식 제한]
-- 오직 파이썬 코드 블록(```python ... ```) 안에만 코드를 작성해라.
-- `print()`나 `plt.show()` 같은 화면 출력 코드는 절대 작성하지 마라.
-- 코드 외에 어떠한 설명도 붙이지 마라.
+[출력 형식]
+- 오직 ```python ... ``` 코드 블록만 출력. 설명 없음. print/plt.show 금지.
 """.strip()
 
 
 # ─────────────────────────────────────────────
-# 유틸리티 함수
+# 유니버스 티커 수집
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=3600 * 24, show_spinner=False)
+def get_universe_tickers(universe: str) -> list:
+    """Wikipedia에서 지수 구성종목 티커 수집 (24시간 캐시)"""
+    try:
+        if universe == "NASDAQ-100":
+            tables = pd.read_html("https://en.wikipedia.org/wiki/Nasdaq-100")
+            for t in tables:
+                for col in ["Ticker", "Symbol", "Ticker symbol"]:
+                    if col in t.columns:
+                        raw = t[col].dropna().astype(str).str.strip().tolist()
+                        tickers = [x.replace(".", "-") for x in raw if len(x) <= 6 and x.isalpha() or "-" in x]
+                        if len(tickers) > 50:
+                            return sorted(tickers)
+        elif universe == "S&P 500":
+            tables = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+            raw = tables[0]["Symbol"].dropna().astype(str).str.strip().tolist()
+            return sorted([x.replace(".", "-") for x in raw])
+    except Exception:
+        pass
+    return []
+
+
+def get_rebal_dates(price_index: pd.DatetimeIndex, freq: str) -> pd.DatetimeIndex:
+    """리밸런싱 날짜 생성 (실제 거래일 기준으로 스냅)"""
+    freq_rule = {
+        "주간": "W-FRI",
+        "월간": "ME",
+        "분기": "QE",
+        "반기": "QE",   # 분기의 격월 → 아래서 필터
+        "연간": "YE",
+    }
+    dummy = pd.Series(1, index=price_index)
+    resampled = dummy.resample(freq_rule[freq]).last().index
+    if freq == "반기":
+        resampled = resampled[::2]  # 분기 중 격월만 사용
+
+    # 실제 거래일로 스냅 (해당 날짜 이하 가장 가까운 날)
+    snapped = []
+    for d in resampled:
+        past = price_index[price_index <= d]
+        if len(past) > 0:
+            snapped.append(past[-1])
+    return pd.DatetimeIndex(sorted(set(snapped)))
+
+
+# ─────────────────────────────────────────────
+# 데이터 다운로드
 # ─────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def download_data(ticker: str, start: str, end: str) -> pd.DataFrame:
-    """yfinance로 수정주가 포함 OHLCV 데이터 다운로드 (최신 버전 멀티인덱스 호환)"""
+def download_single(ticker: str, start: str, end: str) -> pd.DataFrame:
+    """단일 종목 다운로드 (최신 yfinance 멀티인덱스 호환)"""
     try:
         df = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)
     except Exception:
         return pd.DataFrame()
-
     if df is None or df.empty:
         return pd.DataFrame()
-
-    # ── 멀티인덱스 컬럼 평탄화 ──────────────────────────────────────
-    # 최신 yfinance는 (Price, Ticker) 구조의 MultiIndex를 반환
-    # 예: ('Adj Close', 'TSLA'), ('Close', 'TSLA'), ...
     if isinstance(df.columns, pd.MultiIndex):
-        lvl0_samples = set(df.columns.get_level_values(0))
+        lvl0 = set(df.columns.get_level_values(0))
         price_fields = {"Adj Close", "Close", "Open", "High", "Low", "Volume"}
-        if lvl0_samples & price_fields:
-            df.columns = df.columns.get_level_values(0)
-        else:
-            df.columns = df.columns.get_level_values(1)
-
-    # 컬럼명 문자열 정규화
+        df.columns = df.columns.get_level_values(0) if lvl0 & price_fields else df.columns.get_level_values(1)
     df.columns = [str(c).strip() for c in df.columns]
-
-    # ── Adj Close 없을 경우 Close로 대체 ────────────────────────────
     if "Adj Close" not in df.columns:
         if "Close" in df.columns:
             df["Adj Close"] = df["Close"]
         else:
             return pd.DataFrame()
-
-    df = df.dropna(subset=["Adj Close"])
-    return df
+    return df.dropna(subset=["Adj Close"])
 
 
-def call_gemini(api_key: str, strategy_text: str) -> str:
-    """Gemini API를 호출하여 백테스트 코드를 생성 (google-genai SDK)"""
+@st.cache_data(ttl=3600 * 12, show_spinner=False)
+def download_universe(tickers_csv: str, start: str, end: str):
+    """
+    유니버스 전체 배치 다운로드.
+    tickers_csv: 캐시 키용 (콤마 구분 정렬 문자열)
+    반환: (prices_df, returns_df) or (None, None)
+    """
+    tickers = tickers_csv.split(",")
+    try:
+        raw = yf.download(tickers, start=start, end=end, auto_adjust=False,
+                          progress=False, group_by="ticker")
+    except Exception:
+        return None, None
+    if raw is None or raw.empty:
+        return None, None
+
+    # MultiIndex (ticker, price) → Adj Close pivot 추출
+    if isinstance(raw.columns, pd.MultiIndex):
+        try:
+            prices_df = raw.xs("Adj Close", axis=1, level=1)
+        except KeyError:
+            try:
+                prices_df = raw.xs("Close", axis=1, level=1)
+            except KeyError:
+                return None, None
+    else:
+        # 단일 티커 예외처리
+        prices_df = raw[["Adj Close"]].rename(columns={"Adj Close": tickers[0]})
+
+    prices_df = prices_df.dropna(axis=1, how="all")   # 데이터 없는 종목 제거
+    prices_df = prices_df.ffill()                       # 결측 거래일 앞값 채우기
+    prices_df = prices_df.dropna()                      # 남은 NaN 행 제거
+    returns_df = prices_df.pct_change()
+    return prices_df, returns_df
+
+
+# ─────────────────────────────────────────────
+# Gemini API
+# ─────────────────────────────────────────────
+def call_gemini(api_key: str, user_message: str, system_prompt: str) -> str:
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=strategy_text,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-        ),
+        model="gemini-2.0-flash",
+        contents=user_message,
+        config=types.GenerateContentConfig(system_instruction=system_prompt),
     )
     return response.text
 
 
-def extract_python_code(text: str) -> str:
-    """Gemini 응답에서 python 코드 블록만 추출"""
-    pattern = r"```python\s*([\s\S]*?)```"
-    matches = re.findall(pattern, text)
-    if matches:
-        return "\n\n".join(matches).strip()
-    return text.strip()
+def extract_code(text: str) -> str:
+    matches = re.findall(r"```python\s*([\s\S]*?)```", text)
+    return "\n\n".join(matches).strip() if matches else text.strip()
 
 
-def run_backtest(df: pd.DataFrame, code: str):
-    """격리된 exec() 환경에서 백테스트 코드 실행"""
-    allowed_globals = {
+# ─────────────────────────────────────────────
+# 코드 실행 (샌드박스)
+# ─────────────────────────────────────────────
+def _make_sandbox():
+    return {
         "__builtins__": {
             "abs": abs, "all": all, "any": any, "bool": bool,
             "dict": dict, "enumerate": enumerate, "float": float,
             "int": int, "isinstance": isinstance, "len": len,
             "list": list, "map": map, "max": max, "min": min,
             "print": print, "range": range, "round": round,
-            "set": set, "str": str, "sum": sum, "tuple": tuple,
-            "zip": zip,
+            "set": set, "sorted": sorted, "str": str, "sum": sum,
+            "tuple": tuple, "type": type, "zip": zip,
         },
         "pd": pd,
         "np": np,
+        "math": math,
     }
+
+
+def run_single_code(df: pd.DataFrame, code: str) -> pd.DataFrame:
     local_vars = {"df": df.copy()}
-    exec(code, allowed_globals, local_vars)
+    exec(code, _make_sandbox(), local_vars)
     return local_vars["df"]
 
 
-def calc_metrics(df: pd.DataFrame, initial_capital: float):
-    """성과 지표 계산: CAGR, MDD, 승률, 샤프비율"""
-    cum = df["Cumulative_Return"].dropna()
-    daily_ret = df["Strategy_Return"].dropna()
+def run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, code) -> pd.DataFrame:
+    local_vars = {
+        "prices_df": prices_df.copy(),
+        "returns_df": returns_df.copy(),
+        "rebal_dates": rebal_dates,
+        "n_stocks": n_stocks,
+    }
+    exec(code, _make_sandbox(), local_vars)
+    return local_vars["holdings_df"]
 
+
+# ─────────────────────────────────────────────
+# holdings_df 검증 및 정규화
+# ─────────────────────────────────────────────
+def normalize_holdings(holdings_df: pd.DataFrame, prices_df: pd.DataFrame,
+                        rebal_dates: pd.DatetimeIndex, n_stocks: int) -> pd.DataFrame:
+    """각 행에서 정확히 n_stocks 종목만 선택되도록 정규화"""
+    valid_cols = [c for c in holdings_df.columns if c in prices_df.columns]
+    result = pd.DataFrame(0, index=rebal_dates, columns=prices_df.columns)
+    for d in rebal_dates:
+        if d not in holdings_df.index:
+            continue
+        row = holdings_df.loc[d, valid_cols].fillna(0)
+        top_n = row.nlargest(n_stocks).index
+        result.loc[d, top_n] = 1
+    return result
+
+
+# ─────────────────────────────────────────────
+# 포트폴리오 수익률 계산 (수수료 포함)
+# ─────────────────────────────────────────────
+def calc_portfolio_returns(prices_df: pd.DataFrame, holdings_df: pd.DataFrame,
+                            transaction_cost: float = TRANSACTION_COST) -> pd.Series:
+    daily_ret = prices_df.pct_change()
+    sorted_rebal = holdings_df.index.sort_values()
+    portfolio_daily = pd.Series(0.0, index=daily_ret.index)
+
+    for i, rebal_date in enumerate(sorted_rebal):
+        end_date = (sorted_rebal[i + 1] if i + 1 < len(sorted_rebal)
+                    else daily_ret.index[-1] + pd.Timedelta(days=1))
+
+        row = holdings_df.loc[rebal_date]
+        held = [t for t in row[row == 1].index if t in daily_ret.columns]
+        if not held:
+            continue
+        n = len(held)
+
+        # 수수료 계산
+        if i == 0:
+            cost = transaction_cost  # 최초 매수
+        else:
+            prev_row = holdings_df.loc[sorted_rebal[i - 1]]
+            prev_held = set(prev_row[prev_row == 1].index)
+            curr_held = set(held)
+            bought = len(curr_held - prev_held)
+            sold = len(prev_held - curr_held)
+            # 변경된 종목 비율 × 0.2% (매수측 + 매도측)
+            cost = (bought + sold) / n * transaction_cost
+
+        # 기간 수익률 계산
+        period_mask = (daily_ret.index >= rebal_date) & (daily_ret.index < end_date)
+        if not period_mask.any():
+            continue
+
+        period_rets = daily_ret.loc[period_mask, held].mean(axis=1)
+        portfolio_daily.loc[period_mask] = period_rets.values
+
+        # 첫날 수수료 차감
+        first_day = daily_ret.index[period_mask][0]
+        portfolio_daily[first_day] -= cost
+
+    return portfolio_daily
+
+
+# ─────────────────────────────────────────────
+# 성과 지표 계산 (공통)
+# ─────────────────────────────────────────────
+def calc_metrics(daily_returns: pd.Series, bnh_series: pd.Series,
+                 initial_capital: float) -> dict:
+    daily_returns = daily_returns.dropna()
+    cum = (1 + daily_returns).cumprod()
     if cum.empty or len(cum) < 2:
         return None
 
-    # 총 기간(연수)
     n_days = (cum.index[-1] - cum.index[0]).days
-    n_years = n_days / 365.25 if n_days > 0 else 1
+    n_years = max(n_days / 365.25, 0.01)
 
-    # CAGR
     total_return = cum.iloc[-1] - 1
-    cagr = (cum.iloc[-1] ** (1 / n_years) - 1) if n_years > 0 else total_return
+    cagr = cum.iloc[-1] ** (1 / n_years) - 1
 
-    # MDD
     roll_max = cum.cummax()
     drawdown = (cum - roll_max) / roll_max
     mdd = drawdown.min()
 
-    # 승률
-    trade_returns = daily_ret[daily_ret != 0]
-    win_rate = (trade_returns > 0).sum() / len(trade_returns) if len(trade_returns) > 0 else 0
+    trade_rets = daily_returns[daily_returns != 0]
+    win_rate = (trade_rets > 0).sum() / len(trade_rets) if len(trade_rets) > 0 else 0
+    sharpe = (daily_returns.mean() / daily_returns.std() * np.sqrt(252)) if daily_returns.std() > 0 else 0
 
-    # 샤프비율 (무위험수익률 0% 가정)
-    sharpe = (daily_ret.mean() / daily_ret.std() * np.sqrt(252)) if daily_ret.std() > 0 else 0
-
-    # B&H 누적수익률
-    bnh = (df["Adj Close"] / df["Adj Close"].iloc[0]).dropna()
-
-    # 최종 자산
     final_value = initial_capital * cum.iloc[-1]
 
+    n_years_bnh = max((bnh_series.index[-1] - bnh_series.index[0]).days / 365.25, 0.01)
+    bnh_cagr = bnh_series.iloc[-1] ** (1 / n_years_bnh) - 1
+
     return {
-        "cagr": cagr,
-        "total_return": total_return,
-        "mdd": mdd,
-        "win_rate": win_rate,
-        "sharpe": sharpe,
-        "final_value": final_value,
-        "cum_series": cum,
-        "bnh_series": bnh,
-        "drawdown_series": drawdown,
-        "n_trades": len(trade_returns),
+        "cagr": cagr, "total_return": total_return, "mdd": mdd,
+        "win_rate": win_rate, "sharpe": sharpe, "final_value": final_value,
+        "bnh_cagr": bnh_cagr, "bnh_total": bnh_series.iloc[-1] - 1,
+        "cum_series": cum, "bnh_series": bnh_series,
+        "drawdown_series": drawdown, "n_trades": len(trade_rets),
     }
 
 
-def build_chart(metrics: dict, ticker: str) -> go.Figure:
-    """Plotly 인터랙티브 차트 생성 (누적수익률 + 드로우다운)"""
+# ─────────────────────────────────────────────
+# 차트 생성 (공통)
+# ─────────────────────────────────────────────
+def build_chart(metrics: dict, label: str) -> go.Figure:
     fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        row_heights=[0.68, 0.32],
-        vertical_spacing=0.04,
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.68, 0.32], vertical_spacing=0.04,
         subplot_titles=("📈 누적 수익률 비교", "📉 전략 드로우다운"),
     )
-
     cum = metrics["cum_series"]
     bnh = metrics["bnh_series"]
     dd = metrics["drawdown_series"]
 
-    fig.add_trace(
-        go.Scatter(
-            x=cum.index, y=(cum - 1) * 100,
-            name="AI 전략",
-            line=dict(color="#63b3ed", width=2.5),
-            fill="tozeroy",
-            fillcolor="rgba(99,179,237,0.07)",
-            hovertemplate="%{y:.2f}%<extra>AI 전략</extra>",
-        ),
-        row=1, col=1,
-    )
+    fig.add_trace(go.Scatter(
+        x=cum.index, y=(cum - 1) * 100, name="AI 전략",
+        line=dict(color="#63b3ed", width=2.5),
+        fill="tozeroy", fillcolor="rgba(99,179,237,0.07)",
+        hovertemplate="%{y:.2f}%<extra>AI 전략</extra>",
+    ), row=1, col=1)
 
-    fig.add_trace(
-        go.Scatter(
-            x=bnh.index, y=(bnh - 1) * 100,
-            name=f"Buy & Hold ({ticker})",
-            line=dict(color="#f6c90e", width=1.8, dash="dot"),
-            hovertemplate="%{y:.2f}%<extra>Buy & Hold</extra>",
-        ),
-        row=1, col=1,
-    )
+    fig.add_trace(go.Scatter(
+        x=bnh.index, y=(bnh - 1) * 100, name=f"Buy & Hold ({label})",
+        line=dict(color="#f6c90e", width=1.8, dash="dot"),
+        hovertemplate="%{y:.2f}%<extra>Buy & Hold</extra>",
+    ), row=1, col=1)
 
-    fig.add_trace(
-        go.Scatter(
-            x=dd.index, y=dd * 100,
-            name="드로우다운",
-            line=dict(color="#fc8181", width=1.5),
-            fill="tozeroy",
-            fillcolor="rgba(252,129,129,0.12)",
-            hovertemplate="%{y:.2f}%<extra>MDD</extra>",
-        ),
-        row=2, col=1,
-    )
+    fig.add_trace(go.Scatter(
+        x=dd.index, y=dd * 100, name="드로우다운",
+        line=dict(color="#fc8181", width=1.5),
+        fill="tozeroy", fillcolor="rgba(252,129,129,0.12)",
+        hovertemplate="%{y:.2f}%<extra>MDD</extra>",
+    ), row=2, col=1)
 
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="rgba(10,14,30,0.0)",
-        plot_bgcolor="rgba(10,14,30,0.0)",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="right", x=1,
-            font=dict(color="#94a3b8", size=12),
-            bgcolor="rgba(0,0,0,0)",
-        ),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1, font=dict(color="#94a3b8", size=12),
+                    bgcolor="rgba(0,0,0,0)"),
         margin=dict(l=10, r=10, t=40, b=10),
-        yaxis=dict(
-            gridcolor="rgba(99,179,237,0.08)",
-            ticksuffix="%",
-            tickfont=dict(color="#64748b"),
-        ),
-        yaxis2=dict(
-            gridcolor="rgba(252,129,129,0.08)",
-            ticksuffix="%",
-            tickfont=dict(color="#64748b"),
-        ),
+        yaxis=dict(gridcolor="rgba(99,179,237,0.08)", ticksuffix="%",
+                   tickfont=dict(color="#64748b")),
+        yaxis2=dict(gridcolor="rgba(252,129,129,0.08)", ticksuffix="%",
+                    tickfont=dict(color="#64748b")),
         xaxis2=dict(tickfont=dict(color="#64748b")),
-        hovermode="x unified",
-        height=520,
-        font=dict(family="Inter"),
+        hovermode="x unified", height=520, font=dict(family="Inter"),
     )
     fig.update_annotations(font=dict(color="#94a3b8", size=12))
     return fig
+
+
+def render_metrics(metrics: dict, initial_capital: float):
+    """성과 지표 카드 렌더링 (공통)"""
+    cagr_val = metrics["cagr"] * 100
+    bnh_cagr_val = metrics["bnh_cagr"] * 100
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    with m1:
+        st.metric("CAGR", f"{cagr_val:.2f}%",
+                  delta=f"vs B&H {cagr_val - bnh_cagr_val:+.2f}%p")
+    with m2:
+        st.metric("총 수익률", f"{metrics['total_return'] * 100:.2f}%")
+    with m3:
+        st.metric("최대 낙폭 (MDD)", f"{metrics['mdd'] * 100:.2f}%")
+    with m4:
+        st.metric("승률", f"{metrics['win_rate'] * 100:.1f}%")
+    with m5:
+        st.metric("샤프비율", f"{metrics['sharpe']:.2f}")
+
+    st.markdown("")
+    m6, m7, m8, m9 = st.columns(4)
+    with m6:
+        st.metric("최종 자산", f"${metrics['final_value']:,.0f}")
+    with m7:
+        st.metric("초기 자본금", f"${initial_capital:,}")
+    with m8:
+        st.metric("매매 활성일", f"{metrics['n_trades']:,}일")
+    with m9:
+        st.metric("B&H 총 수익률", f"{metrics['bnh_total'] * 100:.2f}%")
 
 
 # ─────────────────────────────────────────────
@@ -448,52 +662,38 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown('<p class="section-title">🔑 API 설정</p>', unsafe_allow_html=True)
-    api_key = st.text_input(
-        "Gemini API Key",
-        type="password",
-        placeholder="AIza...",
-        help="Google AI Studio에서 발급받은 API 키를 입력하세요.",
-    )
+    api_key = st.text_input("Gemini API Key", type="password", placeholder="AIza...",
+                            help="Google AI Studio에서 발급받은 API 키")
 
-    st.markdown('<p class="section-title">📊 종목 설정</p>', unsafe_allow_html=True)
-    ticker = st.text_input(
-        "종목 코드 (Ticker)",
-        value="AAPL",
-        placeholder="예: AAPL, TSLA, 005930.KS",
-        help="Yahoo Finance 기준 종목 코드를 입력하세요. 한국 주식은 종목코드.KS 형식 사용.",
-    ).strip().upper()
+    st.markdown('<p class="section-title">📊 단일 종목 설정</p>', unsafe_allow_html=True)
+    ticker = st.text_input("종목 코드 (Ticker)", value="AAPL",
+                           placeholder="예: AAPL, TSLA, 005930.KS",
+                           help="Yahoo Finance 기준 코드. 한국주식: 종목코드.KS").strip().upper()
 
-    st.markdown('<p class="section-title">📅 테스트 기간</p>', unsafe_allow_html=True)
-    col_s, col_e = st.columns(2)
-    with col_s:
-        start_date = st.date_input(
-            "시작일",
-            value=date.today() - timedelta(days=365 * 5),
-            max_value=date.today() - timedelta(days=30),
-        )
-    with col_e:
-        end_date = st.date_input(
-            "종료일",
-            value=date.today(),
-            max_value=date.today(),
-        )
-
-    st.markdown('<p class="section-title">💰 자본금 설정</p>', unsafe_allow_html=True)
-    initial_capital = st.number_input(
-        "초기 자본금 ($)",
-        min_value=1000,
-        max_value=100_000_000,
-        value=10_000,
-        step=1000,
-        format="%d",
-    )
-
-    st.markdown("---")
+    st.markdown('<p class="section-title">🌍 포트폴리오 설정</p>', unsafe_allow_html=True)
+    universe = st.selectbox("유니버스", ["NASDAQ-100", "S&P 500"])
+    n_stocks = st.slider("보유 종목 수", min_value=5, max_value=50, value=10, step=5)
+    rebal_freq = st.selectbox("리밸런싱 주기", ["월간", "분기", "반기", "연간", "주간"])
     st.markdown(
-        "<small style='color:#374151;'>⚠️ 본 서비스는 교육 목적으로 제공됩니다. "
-        "투자 결과에 대한 책임은 사용자 본인에게 있습니다.</small>",
+        '<div class="cost-badge">💸 거래 수수료: 0.2% / 편도 적용</div>',
         unsafe_allow_html=True,
     )
+
+    st.markdown('<p class="section-title">📅 공통 설정</p>', unsafe_allow_html=True)
+    col_s, col_e = st.columns(2)
+    with col_s:
+        start_date = st.date_input("시작일",
+                                   value=date.today() - timedelta(days=365 * 5),
+                                   max_value=date.today() - timedelta(days=30))
+    with col_e:
+        end_date = st.date_input("종료일", value=date.today(), max_value=date.today())
+
+    initial_capital = st.number_input("초기 자본금 ($)", min_value=1000,
+                                      max_value=100_000_000, value=10_000,
+                                      step=1000, format="%d")
+    st.markdown("---")
+    st.markdown("<small style='color:#374151;'>⚠️ 교육 목적 제공. 투자 손실에 대한 책임은 본인에게 있습니다.</small>",
+                unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -506,159 +706,240 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown('<p class="section-title">💡 투자 전략 입력</p>', unsafe_allow_html=True)
-strategy_examples = [
-    "20일 이동평균선이 60일선을 상향 돌파하면 매수하고, 하향 이탈하면 매도해 줘.",
-    "RSI가 30 이하로 과매도 구간에 진입하면 매수하고, 70 이상에서 매도해 줘.",
-    "주가가 52주 신고가를 갱신하면 매수 진입하고, 20일 이동평균선 아래로 떨어지면 청산해 줘.",
-    "볼린저밴드 하단 터치 시 매수하고, 상단 터치 시 매도해 줘.",
-]
-example_idx = st.selectbox(
-    "💡 예시 전략 불러오기",
-    options=["직접 입력하기"] + strategy_examples,
-    index=0,
-)
+tab1, tab2 = st.tabs(["📊 단일 종목 백테스트", "🌍 포트폴리오 유니버스 백테스트"])
 
-default_text = "" if example_idx == "직접 입력하기" else example_idx
-strategy_text = st.text_area(
-    "전략 설명",
-    value=default_text,
-    height=130,
-    placeholder="예: 20일 이동평균선이 60일 이동평균선을 상향 돌파하면 매수하고, 하향 이탈하면 매도해 줘.",
-    label_visibility="collapsed",
-)
 
-run_btn = st.button("🚀  백테스트 실행", use_container_width=True)
+# ══════════════════════════════════════════════
+# TAB 1 — 단일 종목
+# ══════════════════════════════════════════════
+with tab1:
+    st.markdown('<p class="section-title">💡 투자 전략 입력</p>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# 실행 로직
-# ─────────────────────────────────────────────
-if run_btn:
-    errors = []
-    if not api_key:
-        errors.append("⛔ 사이드바에서 **Gemini API Key**를 입력해 주세요.")
-    if not ticker:
-        errors.append("⛔ **종목 코드**를 입력해 주세요.")
-    if not strategy_text.strip():
-        errors.append("⛔ **투자 전략**을 입력해 주세요.")
-    if start_date >= end_date:
-        errors.append("⛔ **종료일**이 시작일보다 이후여야 합니다.")
+    single_examples = [
+        "20일 이동평균선이 60일선을 상향 돌파하면 매수하고, 하향 이탈하면 매도해 줘.",
+        "RSI 14일이 30 이하로 과매도 구간 진입 시 매수하고, 70 이상에서 매도해 줘.",
+        "주가가 52주 신고가를 갱신하면 매수하고, 20일선 아래로 떨어지면 청산해 줘.",
+        "볼린저밴드 하단 터치 시 매수하고, 상단 터치 시 매도해 줘.",
+        "MACD 시그널선 골든크로스 발생 시 매수, 데드크로스 시 매도해 줘.",
+    ]
+    ex1 = st.selectbox("예시 전략 불러오기", ["직접 입력하기"] + single_examples, key="ex1")
+    strategy_single = st.text_area(
+        "전략 설명", value="" if ex1 == "직접 입력하기" else ex1, height=120,
+        placeholder="예: 20일 이동평균선이 60일선을 상향 돌파하면 매수하고, 하향 이탈하면 매도해 줘.",
+        label_visibility="collapsed", key="strat_single",
+    )
+    run1 = st.button("🚀  백테스트 실행", key="run1", use_container_width=True)
 
-    if errors:
-        for e in errors:
+    if run1:
+        errs = []
+        if not api_key: errs.append("⛔ **Gemini API Key**를 입력해 주세요.")
+        if not ticker: errs.append("⛔ **종목 코드**를 입력해 주세요.")
+        if not strategy_single.strip(): errs.append("⛔ **투자 전략**을 입력해 주세요.")
+        if start_date >= end_date: errs.append("⛔ **종료일**이 시작일보다 이후여야 합니다.")
+        for e in errs:
             st.error(e)
-        st.stop()
-
-    # ── 1. 데이터 다운로드 ──────────────────────
-    with st.spinner(f"📡 {ticker} 데이터를 다운로드 중..."):
-        df = download_data(ticker, str(start_date), str(end_date))
-
-    if df is None or df.empty:
-        st.error(
-            f"❌ **{ticker}** 데이터를 불러올 수 없습니다. "
-            "종목 코드가 올바른지 확인하세요. (예: AAPL, TSLA, 005930.KS)"
-        )
-        st.stop()
-
-    st.success(f"✅ {ticker} 데이터 로드 완료 ({len(df):,}일, {start_date} ~ {end_date})")
-
-    # ── 2. Gemini 코드 생성 ─────────────────────
-    with st.spinner("🤖 Gemini가 백테스트 코드를 생성 중..."):
-        try:
-            raw_response = call_gemini(api_key, strategy_text)
-            generated_code = extract_python_code(raw_response)
-        except Exception as e:
-            st.error(f"❌ Gemini API 오류: {e}")
+        if errs:
             st.stop()
 
-    # ── 3. 코드 실행 (exec 샌드박스) ───────────
-    with st.spinner("⚡ 백테스트 실행 중..."):
-        try:
-            result_df = run_backtest(df, generated_code)
-        except Exception as e:
-            st.error("❌ 백테스트 코드 실행 중 오류가 발생했습니다.")
-            with st.expander("🔍 오류 상세 보기", expanded=True):
-                st.code(traceback.format_exc(), language="text")
-            with st.expander("🤖 Gemini가 생성한 코드", expanded=False):
-                st.code(generated_code, language="python")
-            st.info(
-                "💡 **Self-Correction 힌트:** 위 오류 메시지를 복사하여 전략 프롬프트 뒤에 붙여넣고 "
-                "다시 실행하면 AI가 스스로 오류를 수정합니다."
-            )
+        with st.spinner(f"📡 {ticker} 데이터 다운로드 중..."):
+            df = download_single(ticker, str(start_date), str(end_date))
+        if df is None or df.empty:
+            st.error(f"❌ **{ticker}** 데이터를 불러올 수 없습니다. 종목 코드를 확인하세요.")
+            st.stop()
+        st.success(f"✅ {ticker} 데이터 로드 완료 ({len(df):,}일)")
+
+        with st.spinner("🤖 Gemini가 백테스트 코드를 생성 중..."):
+            try:
+                raw = call_gemini(api_key, strategy_single, SYSTEM_SINGLE)
+                code1 = extract_code(raw)
+            except Exception as e:
+                st.error(f"❌ Gemini API 오류: {e}")
+                st.stop()
+
+        with st.spinner("⚡ 백테스트 실행 중..."):
+            try:
+                result_df = run_single_code(df, code1)
+            except Exception:
+                st.error("❌ 코드 실행 오류가 발생했습니다.")
+                with st.expander("🔍 오류 상세", expanded=True):
+                    st.code(traceback.format_exc(), language="text")
+                with st.expander("🤖 생성 코드"):
+                    st.code(code1, language="python")
+                st.info("💡 오류 메시지를 전략 텍스트 뒤에 붙여넣고 다시 실행하면 AI가 자동 수정합니다.")
+                st.stop()
+
+        req = ["Signal", "Position", "Strategy_Return", "Cumulative_Return"]
+        missing = [c for c in req if c not in result_df.columns]
+        if missing:
+            st.error(f"❌ 필수 컬럼 없음: {missing}")
+            with st.expander("🤖 생성 코드"):
+                st.code(code1, language="python")
             st.stop()
 
-    required_cols = ["Signal", "Position", "Strategy_Return", "Cumulative_Return"]
-    missing = [c for c in required_cols if c not in result_df.columns]
-    if missing:
-        st.error(f"❌ 생성된 코드에 필수 컬럼이 없습니다: {missing}")
-        with st.expander("🤖 생성 코드 확인"):
-            st.code(generated_code, language="python")
-        st.stop()
+        bnh = (df["Adj Close"] / df["Adj Close"].iloc[0]).dropna()
+        metrics = calc_metrics(result_df["Strategy_Return"], bnh, initial_capital)
+        if not metrics:
+            st.error("❌ 성과 계산 실패 — 매매 신호가 생성되지 않았을 수 있습니다.")
+            st.stop()
 
-    # ── 4. 성과 지표 계산 ──────────────────────
-    metrics = calc_metrics(result_df, initial_capital)
-    if metrics is None:
-        st.error("❌ 성과 계산에 실패했습니다. 전략이 매매 신호를 생성하지 못했을 수 있습니다.")
-        st.stop()
+        st.markdown("---")
+        st.markdown("## 📊 백테스트 결과")
+        st.markdown('<p class="section-title">🏆 핵심 성과 지표</p>', unsafe_allow_html=True)
+        render_metrics(metrics, initial_capital)
+        st.markdown('<p class="section-title">📈 성과 차트</p>', unsafe_allow_html=True)
+        st.plotly_chart(build_chart(metrics, ticker), use_container_width=True)
+        with st.expander("🤖 Gemini 생성 코드 보기"):
+            st.code(code1, language="python")
+        with st.expander("📋 데이터 미리보기 (최근 10행)"):
+            cols = [c for c in ["Adj Close", "Signal", "Position", "Strategy_Return", "Cumulative_Return"]
+                    if c in result_df.columns]
+            st.dataframe(result_df[cols].tail(10), use_container_width=True)
 
-    # ─────────────────────────────────────────────
-    # 결과 대시보드
-    # ─────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("## 📊 백테스트 결과")
 
-    st.markdown('<p class="section-title">🏆 핵심 성과 지표</p>', unsafe_allow_html=True)
-    m1, m2, m3, m4, m5 = st.columns(5)
+# ══════════════════════════════════════════════
+# TAB 2 — 포트폴리오 유니버스
+# ══════════════════════════════════════════════
+with tab2:
+    st.markdown(f"""
+    **현재 설정:** `{universe}` 유니버스 · 상위 **{n_stocks}개** 종목 보유 · **{rebal_freq}** 리밸런싱 · 수수료 **0.2%**
+    """)
 
-    cagr_val = metrics["cagr"] * 100
-    total_ret = metrics["total_return"] * 100
-    mdd_val = metrics["mdd"] * 100
-    win_val = metrics["win_rate"] * 100
-    sharpe_val = metrics["sharpe"]
+    portfolio_examples = [
+        "최근 6개월 수익률(모멘텀)이 가장 높은 상위 n_stocks개 종목을 선택해줘.",
+        "최근 20일 변동성(일간 수익률 표준편차)이 가장 낮은 n_stocks개 종목을 선택해줘.",
+        "최근 1개월 수익률이 플러스이면서, 52주 신고가 대비 낙폭이 가장 작은 n_stocks개 종목을 선택해줘.",
+        "최근 3개월 수익률 상위 50% 종목 중, 최근 1개월 변동성이 가장 낮은 n_stocks개를 선택해줘.",
+        "최근 12개월 수익률에서 최근 1개월 수익률을 뺀 값(12-1 모멘텀)이 가장 높은 n_stocks개 종목을 선택해줘.",
+    ]
+    st.markdown('<p class="section-title">💡 종목 선택 전략 입력</p>', unsafe_allow_html=True)
+    ex2 = st.selectbox("예시 전략 불러오기", ["직접 입력하기"] + portfolio_examples, key="ex2")
+    strategy_port = st.text_area(
+        "전략 설명 (종목 선택 기준)", value="" if ex2 == "직접 입력하기" else ex2, height=120,
+        placeholder="예: 최근 6개월 수익률(모멘텀)이 가장 높은 상위 n_stocks개 종목을 매월 말 리밸런싱해줘.",
+        label_visibility="collapsed", key="strat_port",
+    )
 
-    bnh = metrics["bnh_series"]
-    n_years_bnh = (bnh.index[-1] - bnh.index[0]).days / 365.25
-    bnh_cagr = (bnh.iloc[-1] ** (1 / n_years_bnh) - 1) * 100 if n_years_bnh > 0 else 0
+    # 벤치마크 선택
+    benchmark_map = {"NASDAQ-100": "QQQ", "S&P 500": "SPY"}
+    benchmark_ticker = benchmark_map[universe]
 
-    with m1:
-        st.metric("CAGR", f"{cagr_val:.2f}%", delta=f"vs B&H {cagr_val - bnh_cagr:+.2f}%p")
-    with m2:
-        st.metric("총 수익률", f"{total_ret:.2f}%")
-    with m3:
-        st.metric("최대 낙폭 (MDD)", f"{mdd_val:.2f}%")
-    with m4:
-        st.metric("승률", f"{win_val:.1f}%")
-    with m5:
-        st.metric("샤프비율", f"{sharpe_val:.2f}")
+    run2 = st.button("🚀  포트폴리오 백테스트 실행", key="run2", use_container_width=True)
 
-    st.markdown("")
-    m6, m7, m8, m9 = st.columns(4)
-    with m6:
-        st.metric("최종 자산", f"${metrics['final_value']:,.0f}")
-    with m7:
-        st.metric("초기 자본금", f"${initial_capital:,}")
-    with m8:
-        st.metric("총 매매 횟수", f"{metrics['n_trades']:,}일")
-    with m9:
-        bnh_total = (bnh.iloc[-1] - 1) * 100
-        st.metric("B&H 총 수익률", f"{bnh_total:.2f}%")
+    if run2:
+        errs = []
+        if not api_key: errs.append("⛔ **Gemini API Key**를 입력해 주세요.")
+        if not strategy_port.strip(): errs.append("⛔ **종목 선택 전략**을 입력해 주세요.")
+        if start_date >= end_date: errs.append("⛔ **종료일**이 시작일보다 이후여야 합니다.")
+        for e in errs:
+            st.error(e)
+        if errs:
+            st.stop()
 
-    st.markdown('<p class="section-title">📈 성과 차트</p>', unsafe_allow_html=True)
-    fig = build_chart(metrics, ticker)
-    st.plotly_chart(fig, use_container_width=True)
+        # ── Step 1: 티커 목록 수집 ─────────────────
+        with st.spinner(f"📋 {universe} 구성 종목 목록 수집 중..."):
+            tickers_list = get_universe_tickers(universe)
 
-    with st.expander("🤖 Gemini가 생성한 백테스트 코드 보기", expanded=False):
-        st.code(generated_code, language="python")
+        if not tickers_list:
+            st.error(f"❌ {universe} 티커 목록을 가져올 수 없습니다. 인터넷 연결을 확인하세요.")
+            st.stop()
+        st.info(f"📋 {universe}: **{len(tickers_list)}개** 종목 확인")
 
-    with st.expander("📋 처리된 데이터 미리보기 (최근 10행)", expanded=False):
-        display_cols = [c for c in ["Adj Close", "Signal", "Position", "Strategy_Return", "Cumulative_Return"] if c in result_df.columns]
-        st.dataframe(
-            result_df[display_cols].tail(10).style.format({
-                "Adj Close": "{:.2f}",
-                "Signal": "{:.0f}",
-                "Position": "{:.0f}",
-                "Strategy_Return": "{:.4f}",
-                "Cumulative_Return": "{:.4f}",
-            }),
-            use_container_width=True,
-        )
+        # ── Step 2: 유니버스 데이터 다운로드 ─────────
+        est_time = "약 30~60초" if len(tickers_list) > 200 else "약 10~30초"
+        with st.spinner(f"📡 {len(tickers_list)}개 종목 데이터 다운로드 중... ({est_time}, 최초 1회)"):
+            tickers_csv = ",".join(sorted(tickers_list))
+            prices_df, returns_df = download_universe(tickers_csv, str(start_date), str(end_date))
+
+        if prices_df is None or prices_df.empty:
+            st.error("❌ 유니버스 데이터 다운로드에 실패했습니다.")
+            st.stop()
+
+        n_downloaded = len(prices_df.columns)
+        st.success(f"✅ 데이터 로드 완료: **{n_downloaded}개** 종목, **{len(prices_df):,}일**")
+
+        # ── Step 3: 리밸런싱 날짜 생성 ───────────────
+        rebal_dates = get_rebal_dates(prices_df.index, rebal_freq)
+        if len(rebal_dates) < 2:
+            st.error("❌ 백테스트 기간이 너무 짧습니다. 기간을 늘려주세요.")
+            st.stop()
+        st.info(f"📅 리밸런싱 횟수: **{len(rebal_dates)}회** ({rebal_freq})")
+
+        # ── Step 4: Gemini 코드 생성 ─────────────────
+        gemini_msg = f"""[전략]
+{strategy_port}
+
+[유니버스 정보]
+- 유니버스: {universe} (총 {n_downloaded}개 종목)
+- 사용 가능 종목 예시: {', '.join(prices_df.columns[:15].tolist())} ... 등
+- 보유 종목 수(n_stocks): {n_stocks}
+- 리밸런싱 주기: {rebal_freq} (총 {len(rebal_dates)}회)
+- 기간: {start_date} ~ {end_date}"""
+
+        with st.spinner("🤖 Gemini가 종목 선택 코드를 생성 중..."):
+            try:
+                raw2 = call_gemini(api_key, gemini_msg, SYSTEM_PORTFOLIO)
+                code2 = extract_code(raw2)
+            except Exception as e:
+                st.error(f"❌ Gemini API 오류: {e}")
+                st.stop()
+
+        # ── Step 5: 코드 실행 → holdings_df 생성 ─────
+        with st.spinner("⚡ 종목 선택 로직 실행 중..."):
+            try:
+                raw_holdings = run_portfolio_code(
+                    prices_df, returns_df, rebal_dates, n_stocks, code2
+                )
+                holdings_df = normalize_holdings(raw_holdings, prices_df, rebal_dates, n_stocks)
+            except Exception:
+                st.error("❌ 종목 선택 코드 실행 중 오류가 발생했습니다.")
+                with st.expander("🔍 오류 상세", expanded=True):
+                    st.code(traceback.format_exc(), language="text")
+                with st.expander("🤖 생성 코드"):
+                    st.code(code2, language="python")
+                st.info("💡 오류 메시지를 전략 텍스트 뒤에 붙여넣고 다시 실행하면 AI가 자동 수정합니다.")
+                st.stop()
+
+        # ── Step 6: 포트폴리오 수익률 계산 ───────────
+        with st.spinner("📊 포트폴리오 수익률 계산 중..."):
+            port_returns = calc_portfolio_returns(prices_df, holdings_df, TRANSACTION_COST)
+
+            # 벤치마크 (QQQ / SPY)
+            with st.spinner(f"📡 벤치마크 ({benchmark_ticker}) 데이터 로드 중..."):
+                bnh_df = download_single(benchmark_ticker, str(start_date), str(end_date))
+            if bnh_df is not None and not bnh_df.empty:
+                bnh_series = (bnh_df["Adj Close"] / bnh_df["Adj Close"].iloc[0]).dropna()
+                # 인덱스 정렬 (포트폴리오와 맞추기)
+                common_idx = port_returns.index.intersection(bnh_series.index)
+                port_returns = port_returns.loc[common_idx]
+                bnh_series = bnh_series.loc[common_idx]
+                bnh_series = bnh_series / bnh_series.iloc[0]  # 같은 시작점
+            else:
+                bnh_series = pd.Series(1.0, index=port_returns.index)
+
+            metrics2 = calc_metrics(port_returns, bnh_series, initial_capital)
+
+        if not metrics2:
+            st.error("❌ 성과 계산 실패 — 매매 신호가 생성되지 않았을 수 있습니다.")
+            st.stop()
+
+        # ── 결과 대시보드 ─────────────────────────────
+        st.markdown("---")
+        st.markdown("## 📊 포트폴리오 백테스트 결과")
+
+        st.markdown('<p class="section-title">🏆 핵심 성과 지표</p>', unsafe_allow_html=True)
+        render_metrics(metrics2, initial_capital)
+
+        st.markdown('<p class="section-title">📈 성과 차트</p>', unsafe_allow_html=True)
+        st.plotly_chart(build_chart(metrics2, benchmark_ticker), use_container_width=True)
+
+        # 리밸런싱 종목 히스토리
+        with st.expander("📋 리밸런싱 종목 히스토리 (최근 5회)", expanded=False):
+            history = []
+            for d in holdings_df.index[-5:]:
+                row = holdings_df.loc[d]
+                held = sorted(row[row == 1].index.tolist())
+                history.append({"날짜": d.strftime("%Y-%m-%d"), "보유 종목": ", ".join(held)})
+            st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+
+        with st.expander("🤖 Gemini 생성 코드 보기"):
+            st.code(code2, language="python")
