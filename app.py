@@ -791,9 +791,19 @@ with tab1:
         "볼린저밴드 하단 터치 시 매수하고, 상단 터치 시 매도해 줘.",
         "MACD 시그널선 골든크로스 발생 시 매수, 데드크로스 시 매도해 줘.",
     ]
-    ex1 = st.selectbox("예시 전략 불러오기", ["직접 입력하기"] + single_examples, key="ex1")
+
+    def _on_ex1_change():
+        sel = st.session_state["ex1_sel"]
+        st.session_state["strat_single"] = "" if sel == "직접 입력하기" else sel
+
+    st.selectbox("예시 전략 불러오기", ["직접 입력하기"] + single_examples,
+                 key="ex1_sel", on_change=_on_ex1_change)
+
+    if "strat_single" not in st.session_state:
+        st.session_state["strat_single"] = ""
+
     strategy_single = st.text_area(
-        "전략 설명", value="" if ex1 == "직접 입력하기" else ex1, height=120,
+        "전략 설명", height=120,
         placeholder="예: 20일 이동평균선이 60일선을 상향 돌파하면 매수하고, 하향 이탈하면 매도해 줘.",
         label_visibility="collapsed", key="strat_single",
     )
@@ -874,17 +884,35 @@ with tab2:
     """)
 
     portfolio_examples = [
-        "최근 6개월 수익률(모멘텀)이 가장 높은 상위 n_stocks개 종목을 선택해줘.",
-        "최근 20일 변동성(일간 수익률 표준편차)이 가장 낮은 n_stocks개 종목을 선택해줘.",
-        "최근 1개월 수익률이 플러스이면서, 52주 신고가 대비 낙폭이 가장 작은 n_stocks개 종목을 선택해줘.",
-        "최근 3개월 수익률 상위 50% 종목 중, 최근 1개월 변동성이 가장 낮은 n_stocks개를 선택해줘.",
-        "최근 12개월 수익률에서 최근 1개월 수익률을 뺀 값(12-1 모멘텀)이 가장 높은 n_stocks개 종목을 선택해줘.",
+        "최근 6개월 수익률(모멘텀)이 가장 높은 상위 {n}개 종목을 선택해줘.",
+        "최근 20일 변동성(일간 수익률 표준편차)이 가장 낮은 {n}개 종목을 선택해줘.",
+        "최근 1개월 수익률이 플러스이면서, 52주 신고가 대비 낙폭이 가장 작은 {n}개 종목을 선택해줘.",
+        "최근 3개월 수익률 상위 50% 종목 중, 최근 1개월 변동성이 가장 낮은 {n}개를 선택해줘.",
+        "최근 12개월 수익률에서 최근 1개월 수익률을 뺀 값(12-1 모멘텀)이 가장 높은 {n}개 종목을 선택해줘.",
     ]
+    # n_stocks를 실제 숫자로 치환
+    port_ex_display = [ex.format(n=n_stocks) for ex in portfolio_examples]
+
     st.markdown('<p class="section-title">💡 종목 선택 전략 입력</p>', unsafe_allow_html=True)
-    ex2 = st.selectbox("예시 전략 불러오기", ["직접 입력하기"] + portfolio_examples, key="ex2")
+
+    def _on_ex2_change():
+        sel = st.session_state["ex2_sel"]
+        if sel == "직접 입력하기":
+            st.session_state["strat_port"] = ""
+        else:
+            # 선택된 예시를 n_stocks 숫자로 치환하여 textarea에 반영
+            idx = port_ex_display.index(sel)
+            st.session_state["strat_port"] = portfolio_examples[idx].format(n=n_stocks)
+
+    st.selectbox("예시 전략 불러오기", ["직접 입력하기"] + port_ex_display,
+                 key="ex2_sel", on_change=_on_ex2_change)
+
+    if "strat_port" not in st.session_state:
+        st.session_state["strat_port"] = ""
+
     strategy_port = st.text_area(
-        "전략 설명 (종목 선택 기준)", value="" if ex2 == "직접 입력하기" else ex2, height=120,
-        placeholder="예: 최근 6개월 수익률(모멘텀)이 가장 높은 상위 n_stocks개 종목을 매월 말 리밸런싱해줘.",
+        "전략 설명 (종목 선택 기준)", height=120,
+        placeholder=f"예: 최근 6개월 수익률(모멘텀)이 가장 높은 상위 {n_stocks}개 종목을 매월 말 리밸런싱해줘.",
         label_visibility="collapsed", key="strat_port",
     )
 
