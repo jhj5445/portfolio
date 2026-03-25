@@ -637,12 +637,22 @@ def run_single_code(df: pd.DataFrame, code: str) -> pd.DataFrame:
 
 def run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, code, macro_df=None) -> pd.DataFrame:
     code = _clean_code(code)
+
+    # macro_df를 안전한 래퍼로 감싸 (없는 콜럼 접근 시 빈 Series 반환)
+    class _SafeMacro(pd.DataFrame):
+        def __missing__(self, key):
+            return pd.Series(dtype=float, name=key)
+
+    _macro_safe = None
+    if macro_df is not None:
+        _macro_safe = _SafeMacro(macro_df)
+
     local_vars = {
         "prices_df": prices_df.copy(),
         "returns_df": returns_df.copy(),
         "rebal_dates": rebal_dates,
         "n_stocks": n_stocks,
-        "macro_df": macro_df,          # FRED 매크로 데이터 (None 가능)
+        "macro_df": _macro_safe,
     }
     exec(code, _make_sandbox(), local_vars)
     return local_vars["holdings_df"]
@@ -1119,17 +1129,20 @@ if macro_df is not None and 'DFF' in macro_df.columns:
                         _macro_raw[sid] = s
                 if _macro_raw:
                     macro_df = pd.DataFrame(_macro_raw).ffill().dropna(how="all")
+                    _cols = list(macro_df.columns)
                     _desc = ", ".join([
-                        f"{k}({v})"
+                        f"{k} ({v})"
                         for cat in FRED_INDICATORS.values()
                         for k, v in cat.items() if k in macro_df.columns
                     ])
-                    macro_context = f"""
-
-[매크로 데이터 - macro_df 변수로 사용 가능]
-- 제공 지표: {_desc}
-- macro_df.loc[:rebal_date] 로 Look-ahead Bias 없이 접근 가능"""
-                    st.success(f"✅ 매크로 데이터 {len(macro_df.columns)}개 지표 로드 완료")
+                    macro_context = (
+                        f"\n\n[매크로 데이터 - macro_df 변수로 사용 가능]"
+                        f"\n- 젬럼: {_cols}  (이 목록에 없는 콜럼은 절대 접근 금지)"
+                        f"\n- 설명: {_desc}"
+                        f"\n- 접근 시 반드시: `if 'COL' in macro_df.columns:` 확인 후 사용"
+                        f"\n- Look-ahead Bias 방지: macro_df.loc[:rebal_date] 사용"
+                    )
+                    st.success(f"✅ 매크로 데이터 로드 완료: {_cols}")
 
         # ── Step 4: Gemini 코드 생성 ─────────────────
         gemini_msg = f"""[전략]
