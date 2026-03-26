@@ -1417,33 +1417,77 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
         run_custom = st.button("🚀 직접 코드 실행", key="btn_custom_free", use_container_width=True)
 
         if run_custom:
-            with st.spinner("⚡ 코드 실행 중..."):
-                try:
-                    # 빈 샌드박스로 시작
-                    local_vars = {}
+                    with st.spinner("⚡ 코드 실행 중..."):
+                        try:
+                            # 💡 수정됨: local_vars = {} 삭제 (이제 _sand_box 하나만 사용합니다)
+                            
+                            # plt.show() 호출 시 streamlit에서 잡도록 오버라이딩
+                            original_show = plt.show
+                            def st_show(*args, **kwargs):
+                                st.pyplot(plt.gcf())
+                            plt.show = st_show
+                            
+                            # 추가 라이브러리 임포트 (GMM, HMM 등은 없으면 안되므로 샌드박스 개방)
+                            import sklearn
+                            import hmmlearn
+                            try: from fredapi import Fred
+                            except ImportError: Fred = None
+        
+                            _sand_box = {
+                                "__builtins__": __builtins__,
+                                "pd": pd, "np": np, "math": math, "yf": yf, "plt": plt,
+                                "sklearn": sklearn, "hmmlearn": hmmlearn, "Fred": Fred
+                            }
+                            
+                            # 💡 수정됨: local_vars 대신 _sand_box를 두 번 넣어서 변수 스코프를 하나로 통일!
+                            exec(custom_code, _sand_box, _sand_box)
+                            
+                            # 실행 후 plt.show 복구
+                            plt.show = original_show
                     
-                    # plt.show() 호출 시 streamlit에서 잡도록 오버라이딩
-                    original_show = plt.show
-                    def st_show(*args, **kwargs):
-                        st.pyplot(plt.gcf())
-                    plt.show = st_show
-                    
-                    # 추가 라이브러리 임포트 (GMM, HMM 등은 없으면 안되므로 샌드박스 개방)
-                    import sklearn
-                    import hmmlearn
-                    try: from fredapi import Fred
-                    except ImportError: Fred = None
-
-                    _sand_box = {
-                        "__builtins__": __builtins__,
-                        "pd": pd, "np": np, "math": math, "yf": yf, "plt": plt,
-                        "sklearn": sklearn, "hmmlearn": hmmlearn, "Fred": Fred
-                    }
-                    
-                    exec(custom_code, _sand_box, local_vars)
-                    
-                    # 실행 후 plt.show 복구
+                except ImportError as ie:
+                    st.error(f"❌ 필요한 모듈이 설치되어 있지 않습니다: {ie}")
+                    st.info("터미널에서 `pip install hmmlearn fredapi scikit-learn` 등을 실행해 주세요.")
                     plt.show = original_show
+                    st.stop()
+                except Exception:
+                    st.error("❌ 코드 실행 오류가 발생했습니다.")
+                    st.code(traceback.format_exc(), language="text")
+                    plt.show = original_show
+                    st.stop()
+                
+            st.success("✅ 백테스트 실행 완료")
+            
+            # 💡 수정됨: local_vars 대신 _sand_box에서 fig를 찾음
+            fig_rendered = False
+            if "fig" in _sand_box and hasattr(_sand_box["fig"], "savefig"):
+                st.plotly_chart(_sand_box["fig"], use_container_width=True) if isinstance(_sand_box["fig"], go.Figure) else st.pyplot(_sand_box["fig"])
+                fig_rendered = True
+            
+            # 💡 수정됨: local_vars 대신 _sand_box에서 df를 찾음
+            if "df" in _sand_box and isinstance(_sand_box["df"], pd.DataFrame):
+                result_df = _sand_box["df"]
+                if "Cumulative_Return" in result_df.columns and not fig_rendered:
+                    fig = make_subplots(rows=1, cols=1, subplot_titles=("📈 전략 누적 수익률",))
+                    cum = result_df["Cumulative_Return"]
+                    
+                    fig.add_trace(go.Scatter(
+                        x=cum.index, y=(cum - 1) * 100, name="AI 전략",
+                        line=dict(color="#63b3ed", width=2.5),
+                        fill="tozeroy", fillcolor="rgba(99,179,237,0.07)",
+                        hovertemplate="%{y:.2f}%<extra>전략 수익률</extra>",
+                    ))
+                    fig.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                    xanchor="right", x=1, font=dict(color="#94a3b8", size=12),
+                                    bgcolor="rgba(0,0,0,0)"),
+                        margin=dict(l=10, r=10, t=40, b=10),
+                        yaxis=dict(gridcolor="rgba(99,179,237,0.08)", ticksuffix="%", tickfont=dict(color="#64748b")),
+                        hovermode="x unified", height=400, font=dict(family="Inter"),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
                     
                 except ImportError as ie:
                     st.error(f"❌ 필요한 모듈이 설치되어 있지 않습니다: {ie}")
