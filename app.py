@@ -9,8 +9,58 @@ from google.genai import types
 import re
 import traceback
 import math
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import requests
+import json
+import uuid
+from pathlib import Path
+
+# ─────────────────────────────────────────────
+# 전략 저장소 (JSON)
+# ─────────────────────────────────────────────
+STRATEGIES_FILE = Path(__file__).parent / "strategies.json"
+
+
+def load_strategies() -> list:
+    """저장된 전략 목록을 JSON 파일에서 불러옵니다."""
+    if STRATEGIES_FILE.exists():
+        try:
+            return json.loads(STRATEGIES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+    return []
+
+
+def save_strategies(strategies: list):
+    """전략 목록을 JSON 파일에 저장합니다."""
+    STRATEGIES_FILE.write_text(
+        json.dumps(strategies, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def add_strategy(name: str, memo: str, code: str, strat_type: str,
+                 strategy_text: str = "") -> None:
+    """전략 1개를 strategies.json에 추가합니다."""
+    strategies = load_strategies()
+    strategies.append({
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "memo": memo,
+        "type": strat_type,        # 'single' | 'portfolio'
+        "code": code,
+        "strategy_text": strategy_text,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    })
+    save_strategies(strategies)
+
+
+def delete_strategy(strategy_id: str) -> None:
+    """ID로 전략 1개를 strategies.json에서 삭제합니다."""
+    strategies = load_strategies()
+    strategies = [s for s in strategies if s["id"] != strategy_id]
+    save_strategies(strategies)
+
 
 # ─────────────────────────────────────────────
 # FRED 지표 카탈로그
@@ -544,9 +594,12 @@ def download_universe(tickers_csv: str, start: str, end: str):
         # 단일 티커 예외처리
         prices_df = raw[["Adj Close"]].rename(columns={"Adj Close": tickers[0]})
 
-    prices_df = prices_df.dropna(axis=1, how="all")   # 데이터 없는 종목 제거
-    prices_df = prices_df.ffill()                       # 결측 거래일 앞값 채우기
-    prices_df = prices_df.dropna()                      # 남은 NaN 행 제거
+    prices_df = prices_df.dropna(axis=1, how="all")         # 완전히 빈 종목 제거
+    # 전체 기간의 50% 미만 데이터가 있는 종목 제거 (신규 상장 등)
+    min_rows = int(len(prices_df) * 0.5)
+    prices_df = prices_df.dropna(axis=1, thresh=min_rows)
+    prices_df = prices_df.ffill()                             # 결측 거래일 앞값 채우기
+    prices_df = prices_df.dropna(how="all")                  # 모든 컬럼 NaN인 행만 제거
     returns_df = prices_df.pct_change()
     return prices_df, returns_df
 
@@ -904,7 +957,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["📊 단일 종목 백테스트", "🌍 포트폴리오 유니버스 백테스트", "🌐 매크로 대시보드"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 단일 종목 백테스트", "🌍 포트폴리오 유니버스 백테스트", "🌐 매크로 대시보드", "✍️ 직접 코드 & 전략 저장소"])
 
 
 # ══════════════════════════════════════════════
@@ -1002,6 +1055,16 @@ with tab1:
             cols = [c for c in ["Adj Close", "Signal", "Position", "Strategy_Return", "Cumulative_Return"]
                     if c in result_df.columns]
             st.dataframe(result_df[cols].tail(10), use_container_width=True)
+            
+        with st.expander("💾 이 전략 및 코드 저장하기", expanded=False):
+            s_name = st.text_input("전략 이름", key="s_save_name")
+            s_memo = st.text_input("메모 (선택)", key="s_save_memo")
+            if st.button("저장", key="btn_save_single"):
+                if s_name:
+                    add_strategy(s_name, s_memo, code1, "single", strategy_single)
+                    st.success("🎉 전략이 JSON에 저장되었습니다! 탭 4에서 확인하세요.")
+                else:
+                    st.error("전략 이름을 입력하세요.")
 
 
 # ══════════════════════════════════════════════
@@ -1225,6 +1288,16 @@ if macro_df is not None and 'DFF' in macro_df.columns:
         with st.expander("🤖 Gemini 생성 코드 보기"):
             st.code(code2, language="python")
 
+        with st.expander("💾 이 전략 및 코드 저장하기", expanded=False):
+            p_name = st.text_input("전략 이름", key="p_save_name")
+            p_memo = st.text_input("메모 (선택)", key="p_save_memo")
+            if st.button("저장", key="btn_save_port"):
+                if p_name:
+                    add_strategy(p_name, p_memo, code2, "portfolio", strategy_port)
+                    st.success("🎉 전략이 JSON에 저장되었습니다! 탭 4에서 확인하세요.")
+                else:
+                    st.error("전략 이름을 입력하세요.")
+
 
 # ══════════════════════════════════════════════
 # TAB 3 — 매크로 대시보드
@@ -1303,4 +1376,168 @@ with tab3:
                         st.dataframe(macro_df.sort_index(ascending=False), use_container_width=True)
                 else:
                     st.error("❌ 선택한 지표의 데이터를 가져오지 못했습니다. API Key나 날짜 설정을 확인해주세요.")
+
+
+# ══════════════════════════════════════════════
+# TAB 4 — 직접 코드 실행 & 전략 저장소
+# ══════════════════════════════════════════════
+with tab4:
+    sub_a, sub_b = st.tabs(["✍️ 직접 코드 실행", "📚 저장된 전략 (JSON)"])
+
+    # ── Sub A: 직접 코드 실행 ──
+    with sub_a:
+        st.markdown('<p class="section-title">💡 파이썬 코드 직접 실행</p>', unsafe_allow_html=True)
+        st.info("Gemini가 생성하는 코드와 동일한 환경(`df` 또는 `prices_df`, `returns_df`) 샌드박스에서 코드를 실행합니다.")
+
+        mode_sel = st.radio("실행 모드", ["단일 종목 (df)", "포트폴리오 유니버스"], horizontal=True)
+
+        if mode_sel == "단일 종목 (df)":
+            st.markdown("`df['Signal']`, `df['Position']`, `df['Strategy_Return']`, `df['Cumulative_Return']` 필수 할당")
+            custom_code_single = st.text_area(
+                "파이썬 코드 입력", height=200, key="custom_single",
+                value=st.session_state.get("custom_code_single_val", "df['Signal'] = (df['Close'] > df['Close'].rolling(20).mean()).astype(int)\ndf['Position'] = df['Signal'].shift(1)\ndf['Strategy_Return'] = df['Adj Close'].pct_change() * df['Position']\ndf['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()")
+            )
+            run_custom_single = st.button("🚀 직접 코드 실행", key="btn_custom_single", use_container_width=True)
+
+            if run_custom_single:
+                if not ticker:
+                    st.error("⛔ 사이드바에서 **종목 코드**를 입력해 주세요.")
+                    st.stop()
+                with st.spinner(f"📡 {ticker} 데이터 준비 중..."):
+                    df = download_single(ticker, str(start_date), str(end_date))
+                
+                if df is None or df.empty:
+                    st.error(f"❌ **{ticker}** 데이터를 불러올 수 없습니다.")
+                    st.stop()
+
+                with st.spinner("⚡ 코드 실행 중..."):
+                    try:
+                        result_df = run_single_code(df, custom_code_single)
+                    except Exception:
+                        st.error("❌ 코드 실행 오류가 발생했습니다.")
+                        st.code(traceback.format_exc(), language="text")
+                        st.stop()
+
+                req = ["Signal", "Position", "Strategy_Return", "Cumulative_Return"]
+                missing = [c for c in req if c not in result_df.columns]
+                if missing:
+                    st.error(f"❌ 필수 컬럼 누락: {missing}")
+                    st.stop()
+
+                bnh = (df["Adj Close"] / df["Adj Close"].iloc[0]).dropna()
+                metrics = calc_metrics(result_df["Strategy_Return"], bnh, initial_capital)
+                if metrics:
+                    st.success("✅ 백테스트 성공")
+                    render_metrics(metrics, initial_capital)
+                    st.plotly_chart(build_chart(metrics, ticker), use_container_width=True)
+
+                    with st.expander("💾 이 백테스트 코드 저장하기", expanded=False):
+                        s_name = st.text_input("전략 이름", key="s_save_name_c")
+                        s_memo = st.text_input("메모 (선택)", key="s_save_memo_c")
+                        if st.button("저장", key="btn_save_single_c"):
+                            if s_name:
+                                add_strategy(s_name, s_memo, custom_code_single, "single")
+                                st.success("🎉 전략이 JSON에 저장되었습니다! '저장된 전략' 탭에서 확인하세요.")
+                            else:
+                                st.error("전략 이름을 입력하세요.")
+
+        else:
+            # 포트폴리오
+            st.markdown("`holdings_df` (인덱스=rebal_dates, 컬럼=종목코드, 값=1/0) 필수 생성 (항상 `n_stocks` 개수 일치)")
+            custom_code_port = st.text_area(
+                "파이썬 코드 입력", height=200, key="custom_port",
+                value=st.session_state.get("custom_code_port_val", "import pandas as pd\nholdings_df = pd.DataFrame(0, index=rebal_dates, columns=prices_df.columns)\nfor d in rebal_dates:\n    past_ret = returns_df.loc[:d]\n    if len(past_ret) < 20: continue\n    mom = past_ret.iloc[-20:].sum()\n    top = mom.nlargest(n_stocks).index\n    holdings_df.loc[d, top] = 1")
+            )
+            run_custom_port = st.button("🚀 직접 코드 실행", key="btn_custom_port", use_container_width=True)
+
+            if run_custom_port:
+                with st.spinner(f"📋 {universe} 구성 종목 목록 수집 중..."):
+                    tickers_list = get_universe_tickers(universe)
+                if not tickers_list:
+                    st.stop()
+
+                with st.spinner(f"📡 데이터 다운로드 중..."):
+                    tickers_csv = ",".join(sorted(tickers_list))
+                    prices_df, returns_df = download_universe(tickers_csv, str(start_date), str(end_date))
+                
+                if prices_df is None or prices_df.empty:
+                    st.stop()
+
+                rebal_dates = get_rebal_dates(prices_df.index, rebal_freq)
+
+                with st.spinner("⚡ 코드 실행 중..."):
+                    try:
+                        raw_holdings = run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, custom_code_port)
+                        holdings_df = normalize_holdings(raw_holdings, prices_df, rebal_dates, n_stocks)
+                    except Exception:
+                        st.error("❌ 실행 오류")
+                        st.code(traceback.format_exc(), language="text")
+                        st.stop()
+
+                with st.spinner("📊 성과 계산 중..."):
+                    port_returns = calc_portfolio_returns(prices_df, holdings_df, TRANSACTION_COST)
+                    benchmark_ticker = {"NASDAQ-100": "QQQ", "S&P 500": "SPY"}[universe]
+                    bnh_df = download_single(benchmark_ticker, str(start_date), str(end_date))
+                    if bnh_df is not None and not bnh_df.empty:
+                        bnh_series = (bnh_df["Adj Close"] / bnh_df["Adj Close"].iloc[0]).dropna()
+                        common_idx = port_returns.index.intersection(bnh_series.index)
+                        port_returns, bnh_series = port_returns.loc[common_idx], bnh_series.loc[common_idx]
+                        bnh_series = bnh_series / bnh_series.iloc[0]
+                    else:
+                        bnh_series = pd.Series(1.0, index=port_returns.index)
+
+                    metrics2 = calc_metrics(port_returns, bnh_series, initial_capital)
+
+                if metrics2:
+                    st.success("✅ 백테스트 성공")
+                    render_metrics(metrics2, initial_capital)
+                    st.plotly_chart(build_chart(metrics2, benchmark_ticker), use_container_width=True)
+
+                    with st.expander("💾 이 백테스트 코드 저장하기", expanded=False):
+                        p_name = st.text_input("전략 이름", key="p_save_name_c")
+                        p_memo = st.text_input("메모 (선택)", key="p_save_memo_c")
+                        if st.button("저장", key="btn_save_port_c"):
+                            if p_name:
+                                add_strategy(p_name, p_memo, custom_code_port, "portfolio")
+                                st.success("🎉 전략이 저장되었습니다!")
+                            else:
+                                st.error("전략 이름을 입력하세요.")
+
+    # ── Sub B: 저장된 전략 보기 ──
+    with sub_b:
+        st.markdown('<p class="section-title">📚 JSON 전략 라이브러리</p>', unsafe_allow_html=True)
+        saved = load_strategies()
+        if not saved:
+            st.info("아직 저장된 전략이 없습니다.")
+        else:
+            for item in reversed(saved):
+                badge_color = "#4285F4" if item["type"] == "single" else "#34A853"
+                st.markdown(f"""
+                <div style="padding:16px; border:1px solid #e8eaed; border-radius:8px; margin-bottom:12px; background:#fff;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0; font-size:1.1rem;">{item['name']}</h3>
+                        <span style="background:{badge_color}; color:white; padding:4px 8px; border-radius:12px; font-size:0.75rem;">{item['type'].upper()}</span>
+                    </div>
+                    <p style="color:#5f6368; font-size:0.85rem; margin-top:4px;">저장일: {item['saved_at']} | 메모: {item.get('memo', '-')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                if item.get("strategy_text"):
+                    st.caption(f"자연어 전략: {item['strategy_text']}")
+                with st.expander("파이썬 코드 보기"):
+                    st.code(item["code"], language="python")
+
+                c_run, c_del, _ = st.columns([2, 1, 7])
+                with c_run:
+                    if st.button("🔄 에디터로 불러오기", key=f"load_{item['id']}"):
+                        if item["type"] == "single":
+                            st.session_state["custom_code_single_val"] = item["code"]
+                        else:
+                            st.session_state["custom_code_port_val"] = item["code"]
+                        st.success("코드를 불러왔습니다. '직접 코드 실행' 탭을 확인하세요.")
+                with c_del:
+                    if st.button("🗑️ 삭제", key=f"del_{item['id']}"):
+                        delete_strategy(item["id"])
+                        st.rerun()
+
 
