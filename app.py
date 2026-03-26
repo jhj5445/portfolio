@@ -1417,33 +1417,33 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
         run_custom = st.button("🚀 직접 코드 실행", key="btn_custom_free", use_container_width=True)
 
         if run_custom:
-                    with st.spinner("⚡ 코드 실행 중..."):
-                        try:
-                            # 💡 수정됨: local_vars = {} 삭제 (이제 _sand_box 하나만 사용합니다)
+                with st.spinner("⚡ 코드 실행 중..."):
+                    try:
+                        # 💡 수정됨: local_vars = {} 삭제 (이제 _sand_box 하나만 사용합니다)
                             
-                            # plt.show() 호출 시 streamlit에서 잡도록 오버라이딩
-                            original_show = plt.show
-                            def st_show(*args, **kwargs):
-                                st.pyplot(plt.gcf())
-                            plt.show = st_show
+                        # plt.show() 호출 시 streamlit에서 잡도록 오버라이딩
+                        original_show = plt.show
+                        def st_show(*args, **kwargs):
+                            st.pyplot(plt.gcf())
+                        plt.show = st_show
                             
-                            # 추가 라이브러리 임포트 (GMM, HMM 등은 없으면 안되므로 샌드박스 개방)
-                            import sklearn
-                            import hmmlearn
-                            try: from fredapi import Fred
-                            except ImportError: Fred = None
+                        # 추가 라이브러리 임포트 (GMM, HMM 등은 없으면 안되므로 샌드박스 개방)
+                        import sklearn
+                        import hmmlearn
+                        try: from fredapi import Fred
+                        except ImportError: Fred = None
         
-                            _sand_box = {
+                        _sand_box = {
                                 "__builtins__": __builtins__,
                                 "pd": pd, "np": np, "math": math, "yf": yf, "plt": plt,
                                 "sklearn": sklearn, "hmmlearn": hmmlearn, "Fred": Fred
-                            }
+                        }
                             
-                            # 💡 수정됨: local_vars 대신 _sand_box를 두 번 넣어서 변수 스코프를 하나로 통일!
-                            exec(custom_code, _sand_box, _sand_box)
+                        # 💡 수정됨: local_vars 대신 _sand_box를 두 번 넣어서 변수 스코프를 하나로 통일!
+                        exec(custom_code, _sand_box, _sand_box)
                             
-                            # 실행 후 plt.show 복구
-                            plt.show = original_show
+                        # 실행 후 plt.show 복구
+                        plt.show = original_show
                     
                 except ImportError as ie:
                     st.error(f"❌ 필요한 모듈이 설치되어 있지 않습니다: {ie}")
