@@ -14,6 +14,7 @@ import requests
 import json
 import uuid
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 # ─────────────────────────────────────────────
 # 전략 저장소 (JSON)
@@ -1410,7 +1411,7 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
         custom_code = st.text_area(
             "파이썬 완성형 코드 입력", height=400, key="custom_free",
             value=st.session_state.get("custom_code_free_val", default_code),
-            help="yfinance 등을 직접 사용해 데이터를 받고 `df['Cumulative_Return']` 컬럼을 생성하세요."
+            help="데이터 연동부터 백테스트, 시각화까지 자유롭게 작성하세요. `fig` 인스턴스 혹은 `plt.show()` 호출 시 자동으로 렌더링 됩니다."
         )
         
         run_custom = st.button("🚀 직접 코드 실행", key="btn_custom_free", use_container_width=True)
@@ -1418,55 +1419,76 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
         if run_custom:
             with st.spinner("⚡ 코드 실행 중..."):
                 try:
-                    # 빈 샌드박스로 시작해서 로컬 네임스페이스에 df가 생기는지 확인
+                    # 빈 샌드박스로 시작
                     local_vars = {}
+                    
+                    # plt.show() 호출 시 streamlit에서 잡도록 오버라이딩
+                    original_show = plt.show
+                    def st_show(*args, **kwargs):
+                        st.pyplot(plt.gcf())
+                    plt.show = st_show
+                    
+                    # 추가 라이브러리 임포트 (GMM, HMM 등은 없으면 안되므로 샌드박스 개방)
+                    import sklearn
+                    import hmmlearn
+                    try: from fredapi import Fred
+                    except ImportError: Fred = None
+
                     _sand_box = {
                         "__builtins__": __builtins__,
-                        "pd": pd, "np": np, "math": math, "yf": yf
+                        "pd": pd, "np": np, "math": math, "yf": yf, "plt": plt,
+                        "sklearn": sklearn, "hmmlearn": hmmlearn, "Fred": Fred
                     }
+                    
                     exec(custom_code, _sand_box, local_vars)
+                    
+                    # 실행 후 plt.show 복구
+                    plt.show = original_show
+                    
+                except ImportError as ie:
+                    st.error(f"❌ 필요한 모듈이 설치되어 있지 않습니다: {ie}")
+                    st.info("터미널에서 `pip install hmmlearn fredapi scikit-learn` 등을 실행해 주세요.")
+                    plt.show = original_show
+                    st.stop()
                 except Exception:
                     st.error("❌ 코드 실행 오류가 발생했습니다.")
                     st.code(traceback.format_exc(), language="text")
+                    plt.show = original_show
                     st.stop()
-
-            if "df" not in local_vars:
-                st.error("❌ 실행 후 네임스페이스에 `df` 변수가 없습니다. 결과를 `df` 변수에 할당해 주세요.")
-                st.stop()
+                
+            st.success("✅ 백테스트 실행 완료")
             
-            result_df = local_vars["df"]
-            if not isinstance(result_df, pd.DataFrame):
-                st.error("❌ `df` 변수는 pandas DataFrame 형태여야 합니다.")
-                st.stop()
-
-            if "Cumulative_Return" not in result_df.columns:
-                st.error("❌ `df` 내에 `Cumulative_Return` 컬럼이 없습니다. 차트를 그릴 수 없습니다.")
-                st.stop()
-
-            st.success("✅ 백테스트 성공")
+            # 1. 만약 코드 내에서 fig 변수가 정의되었다면 우선 출력
+            fig_rendered = False
+            if "fig" in local_vars and hasattr(local_vars["fig"], "savefig"):
+                st.plotly_chart(local_vars["fig"], use_container_width=True) if isinstance(local_vars["fig"], go.Figure) else st.pyplot(local_vars["fig"])
+                fig_rendered = True
             
-            # 간단한 누적 수익률 차트 렌더링
-            fig = make_subplots(rows=1, cols=1, subplot_titles=("📈 전략 누적 수익률",))
-            cum = result_df["Cumulative_Return"]
-            
-            fig.add_trace(go.Scatter(
-                x=cum.index, y=(cum - 1) * 100, name="AI 전략",
-                line=dict(color="#63b3ed", width=2.5),
-                fill="tozeroy", fillcolor="rgba(99,179,237,0.07)",
-                hovertemplate="%{y:.2f}%<extra>전략 수익률</extra>",
-            ))
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1, font=dict(color="#94a3b8", size=12),
-                            bgcolor="rgba(0,0,0,0)"),
-                margin=dict(l=10, r=10, t=40, b=10),
-                yaxis=dict(gridcolor="rgba(99,179,237,0.08)", ticksuffix="%", tickfont=dict(color="#64748b")),
-                hovermode="x unified", height=400, font=dict(family="Inter"),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
+            # 2. 호환성 지원: df['Cumulative_Return'] 형태로 리턴값을 남겨놓은 구 버전 코드의 경우
+            if "df" in local_vars and isinstance(local_vars["df"], pd.DataFrame):
+                result_df = local_vars["df"]
+                if "Cumulative_Return" in result_df.columns and not fig_rendered:
+                    fig = make_subplots(rows=1, cols=1, subplot_titles=("📈 전략 누적 수익률",))
+                    cum = result_df["Cumulative_Return"]
+                    
+                    fig.add_trace(go.Scatter(
+                        x=cum.index, y=(cum - 1) * 100, name="AI 전략",
+                        line=dict(color="#63b3ed", width=2.5),
+                        fill="tozeroy", fillcolor="rgba(99,179,237,0.07)",
+                        hovertemplate="%{y:.2f}%<extra>전략 수익률</extra>",
+                    ))
+                    fig.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                    xanchor="right", x=1, font=dict(color="#94a3b8", size=12),
+                                    bgcolor="rgba(0,0,0,0)"),
+                        margin=dict(l=10, r=10, t=40, b=10),
+                        yaxis=dict(gridcolor="rgba(99,179,237,0.08)", ticksuffix="%", tickfont=dict(color="#64748b")),
+                        hovermode="x unified", height=400, font=dict(family="Inter"),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
             with st.expander("💾 이 백테스트 코드 저장하기", expanded=False):
                 c_name = st.text_input("전략 이름", key="c_save_name_c")
                 c_memo = st.text_input("메모 (선택)", key="c_save_memo_c")
