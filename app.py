@@ -19,48 +19,73 @@ import matplotlib.pyplot as plt
 # ─────────────────────────────────────────────
 # 전략 저장소 (JSON)
 # ─────────────────────────────────────────────
-STRATEGIES_FILE = Path(__file__).parent / "strategies.json"
+# ─────────────────────────────────────────────
+# 전략 저장소 (Google Sheets 연동)
+# ─────────────────────────────────────────────
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
+import uuid
+from datetime import datetime
 
+def get_gsheets_connection():
+    """Streamlit GSheetsConnection 객체를 반환합니다."""
+    return st.connection("gsheets", type=GSheetsConnection)
 
 def load_strategies() -> list:
-    """저장된 전략 목록을 JSON 파일에서 불러옵니다."""
-    if STRATEGIES_FILE.exists():
-        try:
-            return json.loads(STRATEGIES_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return []
-    return []
+    """구글 시트에서 저장된 전략 목록을 불러옵니다."""
+    try:
+        conn = get_gsheets_connection()
+        # ttl=0 옵션: 캐싱 없이 항상 구글 시트의 최신 상태를 읽어옵니다.
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        
+        # 데이터가 아예 없거나 헤더가 꼬인 경우 빈 리스트 반환
+        if df.empty or "id" not in df.columns:
+            return[]
+            
+        # NaN(빈 셀) 값을 빈 문자열("")로 치환 후 딕셔너리 리스트로 변환
+        df = df.fillna("")
+        return df.to_dict(orient="records")
+    except Exception as e:
+        # 최초 연동 실패 시 에러 방지
+        st.error(f"⚠️ 구글 시트 연동 실패: {e}")
+        return[]
 
-
-def save_strategies(strategies: list):
-    """전략 목록을 JSON 파일에 저장합니다."""
-    STRATEGIES_FILE.write_text(
-        json.dumps(strategies, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def add_strategy(name: str, memo: str, code: str, strat_type: str,
-                 strategy_text: str = "") -> None:
-    """전략 1개를 strategies.json에 추가합니다."""
+def add_strategy(name: str, memo: str, code: str, strat_type: str, strategy_text: str = "") -> None:
+    """새로운 전략을 구글 시트의 마지막 행에 추가합니다."""
+    conn = get_gsheets_connection()
     strategies = load_strategies()
-    strategies.append({
+    
+    new_strategy = {
         "id": str(uuid.uuid4()),
         "name": name,
         "memo": memo,
-        "type": strat_type,        # 'single' | 'portfolio'
+        "type": strat_type,        # 'single' | 'portfolio' | 'free'
         "code": code,
         "strategy_text": strategy_text,
         "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    })
-    save_strategies(strategies)
-
+    }
+    
+    strategies.append(new_strategy)
+    df = pd.DataFrame(strategies)
+    
+    # 구글 시트 덮어쓰기 (업데이트)
+    conn.update(worksheet="Sheet1", data=df)
 
 def delete_strategy(strategy_id: str) -> None:
-    """ID로 전략 1개를 strategies.json에서 삭제합니다."""
+    """ID값을 기준으로 특정 전략을 구글 시트에서 삭제합니다."""
+    conn = get_gsheets_connection()
     strategies = load_strategies()
+    
+    # 해당 ID를 제외한 나머지 리스트만 추출
     strategies = [s for s in strategies if s["id"] != strategy_id]
-    save_strategies(strategies)
+    
+    if not strategies:
+        # 모두 삭제되어 빈 상태가 될 경우 컬럼 골격만 남김
+        df = pd.DataFrame(columns=["id", "name", "memo", "type", "code", "strategy_text", "saved_at"])
+    else:
+        df = pd.DataFrame(strategies)
+        
+    conn.update(worksheet="Sheet1", data=df)
 
 
 # ─────────────────────────────────────────────
@@ -1057,15 +1082,30 @@ with tab1:
                     if c in result_df.columns]
             st.dataframe(result_df[cols].tail(10), use_container_width=True)
             
-        with st.expander("💾 이 전략 및 코드 저장하기", expanded=False):
-            s_name = st.text_input("전략 이름", key="s_save_name")
-            s_memo = st.text_input("메모 (선택)", key="s_save_memo")
-            if st.button("저장", key="btn_save_single"):
-                if s_name:
-                    add_strategy(s_name, s_memo, code1, "single", strategy_single)
-                    st.success("🎉 전략이 JSON에 저장되었습니다! 탭 4에서 확인하세요.")
-                else:
-                    st.error("전략 이름을 입력하세요.")
+# TAB 4의 저장 버튼
+            with st.expander("💾 이 백테스트 코드 저장하기", expanded=False):
+                c_name = st.text_input("전략 이름", key="c_save_name_c")
+                c_memo = st.text_input("메모 (선택)", key="c_save_memo_c")
+                if st.button("저장", key="btn_save_custom_c"):
+                    if c_name:
+                        add_strategy(c_name, c_memo, custom_code, "free")
+                        st.success("🎉 전략이 구글 시트에 안전하게 저장되었습니다!")
+                        st.rerun()  # 💡 필수: 누르자마자 리로드해서 목록에 즉시 뜨게 함
+                    else:
+                        st.error("전략 이름을 입력하세요.")
+
+            # TAB 4의 삭제 버튼 (Sub B)
+                c_run, c_del, _ = st.columns([2, 1, 7])
+                with c_run:
+                    if st.button("🔄 에디터로 불러오기", key=f"load_{item['id']}"):
+                        st.session_state["custom_code_free_val"] = item["code"]
+                        st.success("코드를 불러왔습니다. '직접 코드 실행' 탭을 확인하세요.")
+                        st.rerun()  # 💡 상태 적용 후 화면 갱신
+                with c_del:
+                    if st.button("🗑️ 삭제", key=f"del_{item['id']}"):
+                        delete_strategy(item["id"])
+                        st.success("삭제되었습니다.")
+                        st.rerun()  # 💡 필수: 삭제 즉시 리스트에서 사라지게 함
 
 
 # ══════════════════════════════════════════════
