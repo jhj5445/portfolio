@@ -17,75 +17,103 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 # ─────────────────────────────────────────────
-# 전략 저장소 (JSON)
+# 전략 저장소 (GitHub API 연동)
 # ─────────────────────────────────────────────
-# ─────────────────────────────────────────────
-# 전략 저장소 (Google Sheets 연동)
-# ─────────────────────────────────────────────
-from streamlit_gsheets import GSheetsConnection
-import pandas as pd
+from github import Github
+import json
 import uuid
 from datetime import datetime
+import base64
 
-def get_gsheets_connection():
-    """Streamlit GSheetsConnection 객체를 반환합니다."""
-    return st.connection("gsheets", type=GSheetsConnection)
+# GitHub 설정 로드
+GITHUB_TOKEN = st.secrets["github"]["token"]
+GITHUB_REPO = st.secrets["github"]["repo"]
+GITHUB_BRANCH = st.secrets["github"]["branch"]
+STRATEGIES_DIR = "strategies"  # 전략 파일이 저장될 폴더명
+
+def get_github_repo():
+    """GitHub 리포지토리 객체를 반환합니다."""
+    g = Github(GITHUB_TOKEN)
+    return g.get_repo(GITHUB_REPO)
 
 def load_strategies() -> list:
-    """구글 시트에서 저장된 전략 목록을 불러옵니다."""
+    """GitHub의 strategies/ 폴더 내 모든 JSON 파일을 읽어옵니다."""
     try:
-        conn = get_gsheets_connection()
-        # ttl=0 옵션: 캐싱 없이 항상 구글 시트의 최신 상태를 읽어옵니다.
-        df = conn.read(worksheet="Sheet1", ttl=0)
+        repo = get_github_repo()
+        strategies = []
         
-        # 데이터가 아예 없거나 헤더가 꼬인 경우 빈 리스트 반환
-        if df.empty or "id" not in df.columns:
-            return[]
-            
-        # NaN(빈 셀) 값을 빈 문자열("")로 치환 후 딕셔너리 리스트로 변환
-        df = df.fillna("")
-        return df.to_dict(orient="records")
+        # 폴더 내 파일 목록 가져오기
+        try:
+            contents = repo.get_contents(STRATEGIES_DIR, ref=GITHUB_BRANCH)
+        except:
+            # 폴더가 아직 없으면 빈 리스트 반환
+            return []
+
+        for content in contents:
+            if content.name.endswith(".json"):
+                # 파일 내용 해제 및 로드
+                file_data = content.decoded_content.decode("utf-8")
+                strat_dict = json.loads(file_data)
+                # SHA 값은 나중에 삭제/수정 시 필요하므로 보관
+                strat_dict["_sha"] = content.sha 
+                strategies.append(strat_dict)
+        
+        # 저장 시간 역순 정렬
+        return sorted(strategies, key=lambda x: x.get("saved_at", ""), reverse=True)
     except Exception as e:
-        # 최초 연동 실패 시 에러 방지
-        st.error(f"⚠️ 구글 시트 연동 실패: {e}")
-        return[]
+        st.error(f"⚠️ GitHub 데이터 로드 실패: {e}")
+        return []
 
 def add_strategy(name: str, memo: str, code: str, strat_type: str, strategy_text: str = "") -> None:
-    """새로운 전략을 구글 시트의 마지막 행에 추가합니다."""
-    conn = get_gsheets_connection()
-    strategies = load_strategies()
-    
-    new_strategy = {
-        "id": str(uuid.uuid4()),
-        "name": name,
-        "memo": memo,
-        "type": strat_type,        # 'single' | 'portfolio' | 'free'
-        "code": code,
-        "strategy_text": strategy_text,
-        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    }
-    
-    strategies.append(new_strategy)
-    df = pd.DataFrame(strategies)
-    
-    # 구글 시트 덮어쓰기 (업데이트)
-    conn.update(worksheet="Sheet1", data=df)
+    """새 전략을 GitHub에 개별 JSON 파일로 생성합니다."""
+    try:
+        repo = get_github_repo()
+        strat_id = str(uuid.uuid4())
+        filename = f"{STRATEGIES_DIR}/{strat_id}.json"
+        
+        new_strategy = {
+            "id": strat_id,
+            "name": name,
+            "memo": memo,
+            "type": strat_type,
+            "code": code,
+            "strategy_text": strategy_text,
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+        
+        # JSON 데이터를 문자열로 변환
+        content_str = json.dumps(new_strategy, ensure_ascii=False, indent=4)
+        
+        # GitHub에 파일 생성 (커밋)
+        repo.create_file(
+            path=filename,
+            message=f"Add strategy: {name}",
+            content=content_str,
+            branch=GITHUB_BRANCH
+        )
+        st.success(f"🚀 '{name}' 전략이 GitHub에 커밋되었습니다!")
+    except Exception as e:
+        st.error(f"❌ GitHub 저장 실패: {e}")
 
 def delete_strategy(strategy_id: str) -> None:
-    """ID값을 기준으로 특정 전략을 구글 시트에서 삭제합니다."""
-    conn = get_gsheets_connection()
-    strategies = load_strategies()
-    
-    # 해당 ID를 제외한 나머지 리스트만 추출
-    strategies = [s for s in strategies if s["id"] != strategy_id]
-    
-    if not strategies:
-        # 모두 삭제되어 빈 상태가 될 경우 컬럼 골격만 남김
-        df = pd.DataFrame(columns=["id", "name", "memo", "type", "code", "strategy_text", "saved_at"])
-    else:
-        df = pd.DataFrame(strategies)
+    """GitHub에서 해당 ID의 JSON 파일을 삭제합니다."""
+    try:
+        repo = get_github_repo()
+        # 해당 ID의 파일을 찾기 위해 목록 조회
+        contents = repo.get_contents(STRATEGIES_DIR, ref=GITHUB_BRANCH)
         
-    conn.update(worksheet="Sheet1", data=df)
+        for content in contents:
+            if content.name == f"{strategy_id}.json":
+                repo.delete_file(
+                    path=content.path,
+                    message=f"Delete strategy ID: {strategy_id}",
+                    sha=content.sha,
+                    branch=GITHUB_BRANCH
+                )
+                st.success("🗑️ GitHub에서 파일이 삭제되었습니다.")
+                return
+    except Exception as e:
+        st.error(f"❌ GitHub 삭제 실패: {e}")
 
 
 # ─────────────────────────────────────────────
