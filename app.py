@@ -1583,6 +1583,9 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
             st.info("아직 저장된 전략이 없습니다.")
         else:
             for item in reversed(saved):
+                # 'id' 키 누락 시 자동 보완 (구버전 호환)
+                if "id" not in item:
+                    item["id"] = str(uuid.uuid4())
                 if item["type"] == "free": badge_color = "#9aa0a6"
                 elif item["type"] == "single": badge_color = "#4285F4"
                 else: badge_color = "#34A853"
@@ -1601,12 +1604,13 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
                 with st.expander("파이썬 코드 보기"):
                     st.code(item["code"], language="python")
 
+                item_id = item["id"]
                 c_run, c_del, _ = st.columns([2, 1, 7])
                 with c_run:
-                    if st.button("🔄 에디터로 불러오기", key=f"load_{item['id']}"):
+                    if st.button("🔄 에디터로 불러오기", key=f"load_{item_id}"):
                         st.session_state["custom_code_free_val"] = item["code"]
                         st.success("코드를 불러왔습니다. '직접 코드 실행' 탭을 확인하세요.")
                 with c_del:
-                    if st.button("🗑️ 삭제", key=f"del_{item['id']}"):
-                        delete_strategy(item["id"])
+                    if st.button("🗑️ 삭제", key=f"del_{item_id}"):
+                        delete_strategy(item_id)
                         st.rerun()
