@@ -597,7 +597,7 @@ def fetch_fred_data(series_id: str, api_key: str, start_date: str = "2000-01-01"
         return pd.Series(dtype=float) # 에러는 UI에서 처리
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600 * 6, show_spinner=False)
 def download_single(ticker: str, start: str, end: str) -> pd.DataFrame:
     """단일 종목 다운로드 (최신 yfinance 멀티인덱스 호환)"""
     try:
@@ -606,10 +606,19 @@ def download_single(ticker: str, start: str, end: str) -> pd.DataFrame:
         return pd.DataFrame()
     if df is None or df.empty:
         return pd.DataFrame()
+
+    # MultiIndex 처리: (Field, Ticker) 또는 (Ticker, Field) 모두 대응
     if isinstance(df.columns, pd.MultiIndex):
-        lvl0 = set(df.columns.get_level_values(0))
         price_fields = {"Adj Close", "Close", "Open", "High", "Low", "Volume"}
-        df.columns = df.columns.get_level_values(0) if lvl0 & price_fields else df.columns.get_level_values(1)
+        lvl0 = set(df.columns.get_level_values(0))
+        lvl1 = set(df.columns.get_level_values(1))
+        if lvl0 & price_fields:
+            # (Field, Ticker) 구조 → level 0이 필드명
+            df = df.xs(ticker, axis=1, level=1) if ticker in lvl1 else df.droplevel(1, axis=1)
+        else:
+            # (Ticker, Field) 구조 → level 1이 필드명
+            df = df.xs(ticker, axis=1, level=0) if ticker in lvl0 else df.droplevel(0, axis=1)
+
     df.columns = [str(c).strip() for c in df.columns]
     if "Adj Close" not in df.columns:
         if "Close" in df.columns:
@@ -1601,4 +1610,3 @@ df['Cumulative_Return'] = (1 + df['Strategy_Return']).cumprod()"""
                     if st.button("🗑️ 삭제", key=f"del_{item['id']}"):
                         delete_strategy(item["id"])
                         st.rerun()
-
