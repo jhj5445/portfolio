@@ -871,12 +871,12 @@ cagr = cum.iloc[-1] ** (1 / n_yr) - 1
 mdd  = ((cum - cum.cummax()) / cum.cummax()).min()
 sharpe = port.mean() / port.std() * (252 ** 0.5)
 
-print(f"""
-===== 백테스트 결과 =====
-CAGR    : {{cagr * 100:.2f}}%
-MDD     : {{mdd * 100:.2f}}%
-샤프비율: {{sharpe:.2f}}
-""")
+
+print("\n===== 백테스트 결과 =====")
+print("CAGR    : {:.2f}%".format(cagr * 100))
+print("MDD     : {:.2f}%".format(mdd * 100))
+print("샤프비율: {:.2f}".format(sharpe))
+
 """
 
 
