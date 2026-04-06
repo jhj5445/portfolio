@@ -727,7 +727,160 @@ def _clean_code(code: str) -> str:
     return "\n".join(cleaned)
 
 
-# ─────────────────────────────────────────────
+def _make_standalone_portfolio_code(
+    strategy_code: str,
+    universe: str,
+    start_date: str,
+    end_date: str,
+    n_stocks: int,
+    rebal_freq: str,
+    macro_ids: list = None,
+) -> str:
+    """Gemini 생성 전략 코드를 Colab/Jupyter에서 바로 실행 가능한 standalone 코드로 포장합니다."""
+    benchmark = "QQQ" if universe == "NASDAQ-100" else "SPY"
+    wiki_url = (
+        "https://en.wikipedia.org/wiki/Nasdaq-100"
+        if universe == "NASDAQ-100"
+        else "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    )
+    freq_rule_map = {"주간": "W-FRI", "월간": "ME", "분기": "QE", "반기": "QE", "연간": "YE"}
+    freq_rule = freq_rule_map.get(rebal_freq, "ME")
+    is_half_year = str(rebal_freq == "반기")
+
+    # 매크로 섹션
+    if macro_ids:
+        id_list = repr(macro_ids)
+        macro_section = f"""
+# ── FRED 매크로 데이터 로드 ─────────────────────────────────
+FRED_API_KEY = "YOUR_FRED_API_KEY"  # ← FRED API 키 입력 필요
+FRED_IDS = {id_list}
+
+import requests
+
+def _fetch_fred(sid, api_key, start):
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    r = requests.get(url, params=dict(
+        series_id=sid, api_key=api_key, file_type="json", observation_start=start
+    ), timeout=10)
+    obs = r.json()["observations"]
+    return pd.Series(
+        {{pd.to_datetime(d["date"]): float(d["value"]) for d in obs if d["value"] != "."}},
+        name=sid,
+    )
+
+_macro_raw = {{sid: _fetch_fred(sid, FRED_API_KEY, START) for sid in FRED_IDS}}
+macro_df = pd.DataFrame(_macro_raw).ffill().dropna(how="all")
+print(f"✅ macro_df: {{macro_df.shape[1]}}개 지표, {{len(macro_df):,}}일")
+"""
+    else:
+        macro_section = "\nmacro_df = pd.DataFrame()  # 매크로 데이터 미사용\n"
+
+    # auto-removed 주석 제거
+    clean_lines = [
+        line for line in strategy_code.split("\n")
+        if not line.strip().startswith("# [auto-removed]")
+    ]
+    strategy_clean = "\n".join(clean_lines).strip()
+
+    return f"""# ============================================================
+# AI Quant-Tester — Standalone 포트폴리오 백테스트 코드
+# 필요 패키지: pip install yfinance pandas numpy requests
+# ============================================================
+import pandas as pd
+import numpy as np
+import yfinance as yf
+
+# ── 파라미터 설정 ─────────────────────────────────────────────
+UNIVERSE  = "{universe}"
+START     = "{start_date}"
+END       = "{end_date}"
+N_STOCKS  = {n_stocks}
+FREQ_RULE = "{freq_rule}"   # pandas resample offset
+IS_HALF   = {is_half_year}  # 반기(연 2회)이면 True
+BENCHMARK = "{benchmark}"
+
+# ── 1. 유니버스 티커 수집 ─────────────────────────────────────
+try:
+    tables = pd.read_html("{wiki_url}")
+    for t in tables:
+        for col in ["Ticker", "Symbol", "Ticker symbol"]:
+            if col in t.columns:
+                raw = t[col].dropna().astype(str).str.strip().tolist()
+                tickers = [x.replace(".", "-") for x in raw if len(x) <= 6 and x.replace("-","").isalpha()]
+                if len(tickers) > 50:
+                    break
+except Exception:
+    tickers = []  # 실패 시 아래에 직접 입력: tickers = ["AAPL", "MSFT", ...]
+print(f"✅ {{len(tickers)}}개 종목 수집")
+
+# ── 2. 주가 다운로드 ──────────────────────────────────────────
+raw = yf.download(tickers, start=START, end=END,
+                  auto_adjust=False, progress=True, group_by="ticker")
+if isinstance(raw.columns, pd.MultiIndex):
+    try:
+        prices_df = raw.xs("Adj Close", axis=1, level=1)
+    except KeyError:
+        prices_df = raw.xs("Close", axis=1, level=1)
+else:
+    prices_df = raw[["Adj Close"]].rename(columns={{"Adj Close": tickers[0]}})
+
+prices_df = prices_df.dropna(axis=1, how="all")
+prices_df = prices_df.dropna(axis=1, thresh=int(len(prices_df) * 0.5))
+prices_df = prices_df.ffill().dropna(how="all")
+returns_df = prices_df.pct_change()
+print(f"✅ 데이터 로드: {{len(prices_df.columns)}}개 종목, {{len(prices_df):,}}일")
+{macro_section}
+# ── 3. 리밸런싱 날짜 생성 ─────────────────────────────────────
+_dummy = pd.Series(1, index=prices_df.index)
+_dates = _dummy.resample(FREQ_RULE).last().index
+if IS_HALF == "True":
+    _dates = _dates[::2]
+rebal_dates = pd.DatetimeIndex(sorted(set(
+    prices_df.index[prices_df.index <= d][-1]
+    for d in _dates if len(prices_df.index[prices_df.index <= d]) > 0
+)))
+n_stocks = N_STOCKS
+print(f"✅ 리밸런싱 횟수: {{len(rebal_dates)}}회")
+
+# ── 4. AI 생성 종목 선택 로직 ─────────────────────────────────
+{strategy_clean}
+
+# ── 5. 간단 백테스트 (Equal-weight + 0.2% 수수료) ──────────────
+TX_COST  = 0.002
+daily_ret = prices_df.pct_change()
+srebal   = holdings_df.index.sort_values()
+port     = pd.Series(0.0, index=daily_ret.index)
+
+for i, rd in enumerate(srebal):
+    end_d = srebal[i+1] if i+1 < len(srebal) else daily_ret.index[-1] + pd.Timedelta(days=1)
+    row   = holdings_df.loc[rd]
+    held  = [t for t in row[row == 1].index if t in daily_ret.columns]
+    if not held:
+        continue
+    mask = (daily_ret.index >= rd) & (daily_ret.index < end_d)
+    port.loc[mask] = daily_ret.loc[mask, held].mean(axis=1).values
+    prev_held = set(holdings_df.loc[srebal[i-1]][holdings_df.loc[srebal[i-1]] == 1].index) if i > 0 else set()
+    cost = TX_COST if i == 0 else (len(set(held) - prev_held) + len(prev_held - set(held))) / len(held) * TX_COST
+    port.loc[daily_ret.index[mask][0]] -= cost
+
+cum  = (1 + port).cumprod()
+bnh_raw = yf.download(BENCHMARK, start=START, end=END, auto_adjust=True, progress=False)["Close"]
+bnh  = (bnh_raw / bnh_raw.iloc[0]).reindex(cum.index).ffill()
+n_yr = max((cum.index[-1] - cum.index[0]).days / 365.25, 0.01)
+cagr = cum.iloc[-1] ** (1 / n_yr) - 1
+mdd  = ((cum - cum.cummax()) / cum.cummax()).min()
+sharpe = port.mean() / port.std() * (252 ** 0.5)
+
+print(f"""
+===== 백테스트 결과 =====
+CAGR    : {{cagr * 100:.2f}}%
+MDD     : {{mdd * 100:.2f}}%
+샤프비율: {{sharpe:.2f}}
+""")
+"""
+
+
+
 # 코드 실행 (샌드박스)
 # ─────────────────────────────────────────────
 def _make_sandbox():
