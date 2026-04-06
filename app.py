@@ -1197,16 +1197,21 @@ with tab2:
             if not fred_api_key:
                 st.warning("⚠️ 사이드바에 FRED API Key를 먼저 입력하세요.")
             st.markdown("**사용할 FRED 지표 선택:**")
-            macro_cat_sel = st.selectbox("카테고리", list(FRED_INDICATORS.keys()), key="tab2_macro_cat")
-            avail = FRED_INDICATORS[macro_cat_sel]
-            macro_sel_ids = st.multiselect(
-                "지표 선택",
-                list(avail.keys()),
-                format_func=lambda x: f"{x} — {avail[x]}",
-                default=list(avail.keys())[:2],
-                key="tab2_macro_ids",
-            )
-            st.caption("선택한 지표들이 `macro_df` DataFrame으로 Gemini 코드 내에서 사용 가능해집니다.")
+            st.caption("📌 여러 카테고리에서 자유롭게 지표를 선택할 수 있습니다. 선택한 지표들은 `macro_df` DataFrame으로 Gemini 코드 내에서 사용 가능해집니다.")
+            macro_sel_ids = []
+            for cat_name, cat_indicators in FRED_INDICATORS.items():
+                with st.expander(f"📂 {cat_name}", expanded=False):
+                    selected = st.multiselect(
+                        f"{cat_name} 지표 선택",
+                        list(cat_indicators.keys()),
+                        format_func=lambda x, _ind=cat_indicators: f"{x} — {_ind[x]}",
+                        default=[],
+                        key=f"tab2_macro_{cat_name}",
+                        label_visibility="collapsed",
+                    )
+                    macro_sel_ids.extend(selected)
+            if macro_sel_ids:
+                st.success(f"✅ 선택된 지표: **{len(macro_sel_ids)}개** — {', '.join(macro_sel_ids)}")
             st.code("""
 # Gemini가 생성하는 코드에서 직접 ↓ 이렇게 사용 가능
 if macro_df is not None and 'DFF' in macro_df.columns:
