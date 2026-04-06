@@ -735,6 +735,7 @@ def _make_standalone_portfolio_code(
     n_stocks: int,
     rebal_freq: str,
     macro_ids: list = None,
+    available_tickers: list = None,  # 앱에서 실제 사용된 티커 목록
 ) -> str:
     """Gemini 생성 전략 코드를 Colab/Jupyter에서 바로 실행 가능한 standalone 코드로 포장합니다."""
     benchmark = "QQQ" if universe == "NASDAQ-100" else "SPY"
@@ -806,9 +807,9 @@ FREQ_RULE = "{freq_rule}"   # pandas resample offset
 IS_HALF   = {is_half_year}  # 반기(연 2회)이면 True
 BENCHMARK = "{benchmark}"
 
-# ── 1. 유니버스 티커 목록 ─────────────────────────────────────
-# ({universe} 구성종목 하드코딩, 언제든 수정 가능)
-tickers = {repr(_NASDAQ100 if universe == "NASDAQ-100" else _SP500_SAMPLE)}
+# ── 1. 유니버스 티커 목록 (앱에서 실제 사용된 종목, 데이터 필터링 완료) ────────
+# 앱과 동일한 유니버스 사용 → 동일한 결과 보장
+tickers = {repr(available_tickers) if available_tickers else repr(_NASDAQ100 if universe == 'NASDAQ-100' else _SP500_SAMPLE)}
 print("✅ " + str(len(tickers)) + "개 종목 로드")
 
 # ── 2. 주가 다운로드 ──────────────────────────────────────────
@@ -1571,6 +1572,7 @@ if macro_df is not None and 'DFF' in macro_df.columns:
                     n_stocks=n_stocks,
                     rebal_freq=rebal_freq,
                     macro_ids=macro_sel_ids if (use_macro and macro_sel_ids) else None,
+                    available_tickers=sorted(prices_df.columns.tolist()),  # 앱 실제 사용 종목
                 )
                 st.code(_standalone, language="python")
 
