@@ -872,10 +872,10 @@ mdd  = ((cum - cum.cummax()) / cum.cummax()).min()
 sharpe = port.mean() / port.std() * (252 ** 0.5)
 
 
-print("\n===== 백테스트 결과 =====")
-print("CAGR    : {:.2f}%".format(cagr * 100))
-print("MDD     : {:.2f}%".format(mdd * 100))
-print("샤프비율: {:.2f}".format(sharpe))
+print("\\n===== 백테스트 결과 =====")
+print("CAGR    : " + str(round(cagr * 100, 2)) + "%")
+print("MDD     : " + str(round(mdd * 100, 2)) + "%")
+print("샤프비율: " + str(round(sharpe, 2)))
 
 """
 
