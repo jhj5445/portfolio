@@ -1167,8 +1167,11 @@ with st.sidebar:
     else:
         st.error("⛔ `GEMINI_API_KEYS` 시크릿 설정이 필요합니다.")
         
-    fred_api_key = st.text_input("FRED API Key", value=st.secrets.get("FRED_API_KEY", ""),
-                                 type="password", placeholder="FRED API 키 입력")
+    fred_api_key = st.secrets.get("FRED_API_KEY", "").strip()
+    if fred_api_key:
+        st.success("🔑 FRED API Key 로드됨")
+    else:
+        st.warning("⚠️ `FRED_API_KEY` 미설정 (매크로 분석 불가)")
 
     st.markdown('<p class="section-title">📊 단일 종목 설정</p>', unsafe_allow_html=True)
     ticker = st.text_input("종목 코드 (Ticker)", value="AAPL",
@@ -1386,7 +1389,7 @@ with tab2:
         use_macro = st.checkbox("매크로 데이터를 전략에 활용하기 (macro_df 변수로 주입)", value=False)
         if use_macro:
             if not fred_api_key:
-                st.warning("⚠️ 사이드바에 FRED API Key를 먼저 입력하세요.")
+                st.warning("⛔ **FRED API Key**가 설정되지 않았습니다. Streamlit Secrets (또는 secrets.toml)에 추가해 주세요.")
             st.markdown("**사용할 FRED 지표 선택:**")
             st.caption("📌 여러 카테고리에서 자유롭게 지표를 선택할 수 있습니다. 선택한 지표들은 `macro_df` DataFrame으로 Gemini 코드 내에서 사용 가능해집니다.")
             macro_sel_ids = []
@@ -1597,7 +1600,7 @@ with tab3:
     st.markdown('<p class="section-title">📡 FRED 매크로 지표 확인 및 국면 분석</p>', unsafe_allow_html=True)
     
     if not fred_api_key:
-        st.warning("⚠️ 사이드바에 **FRED API Key**를 입력해야 매크로 데이터를 불러올 수 있습니다.")
+        st.warning("⚠️ Streamlit Secrets 화면에서 **FRED_API_KEY**를 설정해야 매크로 데이터를 불러올 수 있습니다.")
         
     c1, c2 = st.columns([1, 2])
     
@@ -1626,7 +1629,7 @@ with tab3:
 
     if load_macro:
         if not fred_api_key:
-            st.error("⛔ FRED API Key를 먼저 입력해 주세요.")
+            st.error("⛔ FRED_API_KEY 시크릿 등록이 필요합니다.")
         elif not selected_indicators:
             st.warning("⚠️ 조회할 지표를 최소 1개 이상 선택해 주세요.")
         else:
