@@ -736,6 +736,7 @@ def _make_standalone_portfolio_code(
     rebal_freq: str,
     macro_ids: list = None,
     available_tickers: list = None,  # 앱에서 실제 사용된 티커 목록
+    fred_api_key: str = "",          # 사용자가 입력한 FRED API 키
 ) -> str:
     """Gemini 생성 전략 코드를 Colab/Jupyter에서 바로 실행 가능한 standalone 코드로 포장합니다."""
     benchmark = "QQQ" if universe == "NASDAQ-100" else "SPY"
@@ -751,9 +752,10 @@ def _make_standalone_portfolio_code(
     # 매크로 섹션
     if macro_ids:
         id_list = repr(macro_ids)
+        api_key_str = f'"{fred_api_key}"' if fred_api_key else '"YOUR_FRED_API_KEY"'
         macro_section = f"""
 # ── FRED 매크로 데이터 로드 ─────────────────────────────────
-FRED_API_KEY = "YOUR_FRED_API_KEY"  # ← FRED API 키 입력 필요
+FRED_API_KEY = {api_key_str}  # ← FRED API 키 자동 주입됨
 FRED_IDS = {id_list}
 
 import requests
@@ -1573,6 +1575,7 @@ if macro_df is not None and 'DFF' in macro_df.columns:
                     rebal_freq=rebal_freq,
                     macro_ids=macro_sel_ids if (use_macro and macro_sel_ids) else None,
                     available_tickers=sorted(prices_df.columns.tolist()),  # 앱 실제 사용 종목
+                    fred_api_key=fred_api_key,                             # 사용자 API 키 주입
                 )
                 st.code(_standalone, language="python")
 
