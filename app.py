@@ -799,31 +799,10 @@ FREQ_RULE = "{freq_rule}"   # pandas resample offset
 IS_HALF   = {is_half_year}  # 반기(연 2회)이면 True
 BENCHMARK = "{benchmark}"
 
-# ── 1. 유니버스 티커 수집 ─────────────────────────────────────
-tickers = []
-try:
-    tables = pd.read_html("{wiki_url}")
-    found = False
-    for t in tables:
-        if found:
-            break
-        for col in ["Ticker", "Symbol", "Ticker symbol"]:
-            if col in t.columns:
-                raw = t[col].dropna().astype(str).str.strip().tolist()
-                candidates = [x.replace(".", "-") for x in raw if len(x) <= 6 and x.replace("-","").isalpha()]
-                if len(candidates) > 50:
-                    tickers = candidates
-                    found = True
-                    break
-except Exception as e:
-    print("Wikipedia 파싱 실패:", e)
-
-if not tickers:
-    raise RuntimeError(
-        "티커 목록 수집 실패. 아래처럼 직접 입력 후 재실행하세요:\n"
-        "tickers = ['AAPL', 'MSFT', 'NVDA', ...]"
-    )
-print("✅ " + str(len(tickers)) + "개 종목 수집")
+# ── 1. 유니버스 티커 목록 ─────────────────────────────────────
+# ({universe} 구성종목 하드코딩, 언제든 수정 가능)
+tickers = {repr(_NASDAQ100 if universe == "NASDAQ-100" else _SP500_SAMPLE)}
+print("✅ " + str(len(tickers)) + "개 종목 로드")
 
 # ── 2. 주가 다운로드 ──────────────────────────────────────────
 raw = yf.download(tickers, start=START, end=END,
