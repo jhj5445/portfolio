@@ -1374,7 +1374,22 @@ if macro_df is not None and 'DFF' in macro_df.columns:
             st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
 
         with st.expander("🤖 Gemini 생성 코드 보기"):
-            st.code(code2, language="python")
+            _tab_app, _tab_colab = st.tabs(["💻 앱 실행 코드", "📔 Colab/Jupyter 복사용"])
+            with _tab_app:
+                st.caption("🔹 앱 내부에서 실행되는 코드입니다. prices_df, macro_df 등 변수가 샌드박스에 이미 주입되어 있습니다.")
+                st.code(code2, language="python")
+            with _tab_colab:
+                st.caption("🔹 Colab/Jupyter에서 바로 실행 가능한 standalone 코드입니다. 복사하여 사용하세요.")
+                _standalone = _make_standalone_portfolio_code(
+                    strategy_code=code2,
+                    universe=universe,
+                    start_date=str(start_date),
+                    end_date=str(end_date),
+                    n_stocks=n_stocks,
+                    rebal_freq=rebal_freq,
+                    macro_ids=macro_sel_ids if (use_macro and macro_sel_ids) else None,
+                )
+                st.code(_standalone, language="python")
 
         with st.expander("💾 이 전략 및 코드 저장하기", expanded=False):
             p_name = st.text_input("전략 이름", key="p_save_name")
