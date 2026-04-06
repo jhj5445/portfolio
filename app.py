@@ -758,11 +758,18 @@ FRED_IDS = {id_list}
 import requests
 
 def _fetch_fred(sid, api_key, start):
+    if api_key == "YOUR_FRED_API_KEY":
+        raise ValueError("FRED_API_KEY를 실제 키로 교체하세요. https://fred.stlouisfed.org/docs/api/api_key.html")
     url = "https://api.stlouisfed.org/fred/series/observations"
     r = requests.get(url, params=dict(
         series_id=sid, api_key=api_key, file_type="json", observation_start=start
     ), timeout=10)
-    obs = r.json()["observations"]
+    data = r.json()
+    if "observations" not in data:
+        err = data.get("error_message", data)
+        print("⚠️ FRED 오류 [" + sid + "]: " + str(err))
+        return pd.Series(dtype=float, name=sid)
+    obs = data["observations"]
     return pd.Series(
         {{pd.to_datetime(d["date"]): float(d["value"]) for d in obs if d["value"] != "."}},
         name=sid,
@@ -836,37 +843,69 @@ print(f"✅ 리밸런싱 횟수: {{len(rebal_dates)}}회")
 # ── 4. AI 생성 종목 선택 로직 ─────────────────────────────────
 {strategy_clean}
 
-# ── 5. 간단 백테스트 (Equal-weight + 0.2% 수수료) ──────────────
-TX_COST  = 0.002
-daily_ret = prices_df.pct_change()
-srebal   = holdings_df.index.sort_values()
-port     = pd.Series(0.0, index=daily_ret.index)
+# ── 5. 앱과 동일한 normalize_holdings + calc_portfolio_returns ──
+TX_COST = 0.002
 
-for i, rd in enumerate(srebal):
-    end_d = srebal[i+1] if i+1 < len(srebal) else daily_ret.index[-1] + pd.Timedelta(days=1)
-    row   = holdings_df.loc[rd]
-    held  = [t for t in row[row == 1].index if t in daily_ret.columns]
+# normalize_holdings: 각 리밸런싱일에 정확히 n_stocks개만 1로 지정
+def _normalize(hdf, pdf, rdates, n):
+    valid = [c for c in hdf.columns if c in pdf.columns]
+    out = pd.DataFrame(0, index=rdates, columns=pdf.columns)
+    for d in rdates:
+        if d not in hdf.index:
+            continue
+        row = hdf.loc[d, valid].fillna(0)
+        top = row.nlargest(n).index
+        out.loc[d, top] = 1
+    return out
+
+holdings_df = _normalize(holdings_df, prices_df, rebal_dates, n_stocks)
+
+# calc_portfolio_returns: 앱과 동일한 수수료 방식
+daily_ret = prices_df.pct_change()
+sorted_rebal = holdings_df.index.sort_values()
+port = pd.Series(0.0, index=daily_ret.index)
+
+for i, rebal_date in enumerate(sorted_rebal):
+    end_date = (sorted_rebal[i + 1] if i + 1 < len(sorted_rebal)
+                else daily_ret.index[-1] + pd.Timedelta(days=1))
+    row = holdings_df.loc[rebal_date]
+    held = [t for t in row[row == 1].index if t in daily_ret.columns]
     if not held:
         continue
-    mask = (daily_ret.index >= rd) & (daily_ret.index < end_d)
-    port.loc[mask] = daily_ret.loc[mask, held].mean(axis=1).values
-    prev_held = set(holdings_df.loc[srebal[i-1]][holdings_df.loc[srebal[i-1]] == 1].index) if i > 0 else set()
-    cost = TX_COST if i == 0 else (len(set(held) - prev_held) + len(prev_held - set(held))) / len(held) * TX_COST
-    port.loc[daily_ret.index[mask][0]] -= cost
+    n = len(held)
+    if i == 0:
+        cost = TX_COST
+    else:
+        prev_row = holdings_df.loc[sorted_rebal[i - 1]]
+        prev_held = set(prev_row[prev_row == 1].index)
+        curr_held = set(held)
+        cost = (len(curr_held - prev_held) + len(prev_held - curr_held)) / n * TX_COST
+    period_mask = (daily_ret.index >= rebal_date) & (daily_ret.index < end_date)
+    if not period_mask.any():
+        continue
+    port.loc[period_mask] = daily_ret.loc[period_mask, held].mean(axis=1).values
+    port.loc[daily_ret.index[period_mask][0]] -= cost
 
-cum  = (1 + port).cumprod()
+# 성과 계산
+cum = (1 + port).cumprod()
 bnh_raw = yf.download(BENCHMARK, start=START, end=END, auto_adjust=True, progress=False)["Close"]
-bnh  = (bnh_raw / bnh_raw.iloc[0]).reindex(cum.index).ffill()
+bnh_raw = bnh_raw.squeeze()
+common = cum.index.intersection(bnh_raw.index)
+cum = cum.loc[common]
+port = port.loc[common]
+bnh = (bnh_raw.loc[common] / bnh_raw.loc[common].iloc[0])
+
 n_yr = max((cum.index[-1] - cum.index[0]).days / 365.25, 0.01)
 cagr = cum.iloc[-1] ** (1 / n_yr) - 1
 mdd  = ((cum - cum.cummax()) / cum.cummax()).min()
 sharpe = port.mean() / port.std() * (252 ** 0.5)
-
+bnh_cagr = bnh.iloc[-1] ** (1 / n_yr) - 1
 
 print("\\n===== 백테스트 결과 =====")
-print("CAGR    : " + str(round(cagr * 100, 2)) + "%")
-print("MDD     : " + str(round(mdd * 100, 2)) + "%")
-print("샤프비율: " + str(round(sharpe, 2)))
+print("CAGR      : " + str(round(cagr * 100, 2)) + "%")
+print("B&H CAGR  : " + str(round(bnh_cagr * 100, 2)) + "%")
+print("MDD       : " + str(round(mdd * 100, 2)) + "%")
+print("샤프비율  : " + str(round(sharpe, 2)))
 
 """
 
