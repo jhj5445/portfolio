@@ -426,7 +426,13 @@ SYSTEM_PORTFOLIO = """
 - returns_df: DataFrame (prices_df.pct_change() 일간 수익률)
 - rebal_dates: pd.DatetimeIndex (리밸런싱 날짜 목록)
 - n_stocks: int (매 리밸런싱 시 보유할 종목 수)
+- macro_df: DataFrame (FRED 매크로 지표; 컬럼=지표 ID, 인덱스=날짜) — 미선택 시 빈 DataFrame
 - 데이터 다운로드/import 코드 작성 금지. 오직 pandas, numpy만 사용.
+
+[macro_df 사용 규칙 - 반드시 준수]
+- macro_df 사용 전 항상 다음 패턴으로 안전하게 접근:
+    col = macro_df['SERIES_ID'].loc[:rebal_date].dropna() if 'SERIES_ID' in macro_df.columns and not macro_df.empty else pd.Series(dtype=float)
+- macro_df가 빈 DataFrame일 수 있으므로 절대로 None 체크나 .empty 확인 없이 .loc/[] 접근 금지.
 
 [출력 - 필수 생성 변수]
 holdings_df: DataFrame
@@ -759,9 +765,8 @@ def run_portfolio_code(prices_df, returns_df, rebal_dates, n_stocks, code, macro
         def __missing__(self, key):
             return pd.Series(dtype=float, name=key)
 
-    _macro_safe = None
-    if macro_df is not None:
-        _macro_safe = _SafeMacro(macro_df)
+    # macro_df가 None이어도 빈 DataFrame으로 주입 → 생성 코드의 .loc 오류 방지
+    _macro_safe = _SafeMacro(macro_df) if macro_df is not None else _SafeMacro()
 
     local_vars = {
         "prices_df": prices_df.copy(),
