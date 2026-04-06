@@ -800,18 +800,30 @@ IS_HALF   = {is_half_year}  # 반기(연 2회)이면 True
 BENCHMARK = "{benchmark}"
 
 # ── 1. 유니버스 티커 수집 ─────────────────────────────────────
+tickers = []
 try:
     tables = pd.read_html("{wiki_url}")
+    found = False
     for t in tables:
+        if found:
+            break
         for col in ["Ticker", "Symbol", "Ticker symbol"]:
             if col in t.columns:
                 raw = t[col].dropna().astype(str).str.strip().tolist()
-                tickers = [x.replace(".", "-") for x in raw if len(x) <= 6 and x.replace("-","").isalpha()]
-                if len(tickers) > 50:
+                candidates = [x.replace(".", "-") for x in raw if len(x) <= 6 and x.replace("-","").isalpha()]
+                if len(candidates) > 50:
+                    tickers = candidates
+                    found = True
                     break
-except Exception:
-    tickers = []  # 실패 시 아래에 직접 입력: tickers = ["AAPL", "MSFT", ...]
-print(f"✅ {{len(tickers)}}개 종목 수집")
+except Exception as e:
+    print("Wikipedia 파싱 실패:", e)
+
+if not tickers:
+    raise RuntimeError(
+        "티커 목록 수집 실패. 아래처럼 직접 입력 후 재실행하세요:\n"
+        "tickers = ['AAPL', 'MSFT', 'NVDA', ...]"
+    )
+print("✅ " + str(len(tickers)) + "개 종목 수집")
 
 # ── 2. 주가 다운로드 ──────────────────────────────────────────
 raw = yf.download(tickers, start=START, end=END,
