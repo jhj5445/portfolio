@@ -188,8 +188,8 @@ def fetch_ticker_data(ticker_symbol):
         
     try:
         t = yf.Ticker(ticker_clean)
-        # 캐싱된 빠른 조회를 위해 fast_info 사용 또는 history 호출
-        hist = t.history(period="1d")
+        # 장외 시간, 주말, 휴일 등으로 period="1d"가 비어있을 상황을 대비해 "5d"로 넉넉히 조회하여 가장 최신 영업일의 종가를 가져옵니다.
+        hist = t.history(period="5d")
         if hist.empty:
             return None
         
@@ -565,7 +565,13 @@ with tab3:
         
         # 1. 목표 수량 및 변동 수량 계산
         df_calc['목표금액'] = total_wealth * (df_calc['목표비중'] / 100.0)
-        df_calc['목표수량'] = (df_calc['목표금액'] / df_calc['현재가']).apply(np.floor).astype(int) # 소수점 이하 절사 (주 단위 매매)
+        
+        # 현재가가 결측치(NaN)이거나 0원인 경우를 안전하게 방어 (나눗셈 에러 및 NaN 방지)
+        safe_price = df_calc['현재가'].fillna(0).replace(0, 1)
+        raw_qty = (df_calc['목표금액'] / safe_price).apply(np.floor)
+        
+        # 계산 결과에서 inf, -inf, NaN을 제거하고 정수형(int)으로 형변환
+        df_calc['목표수량'] = raw_qty.replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
         df_calc['조정수량'] = df_calc['목표수량'] - df_calc['보유수량']
         
         for index, row in df_calc.iterrows():
