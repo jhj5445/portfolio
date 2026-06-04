@@ -2,6 +2,7 @@ import streamlit as st
 import sys
 import ssl
 import urllib3
+import os
 
 # SSL 경고 무시 및 SSL 기본 컨텍스트 변경
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -91,10 +92,10 @@ div[data-testid="stMetricLabel"] {
 
 /* 탭 버튼 스타일링 */
 button[data-baseweb="tab"] {
-    font-size: 15px !important;
+    font-size: 14px !important;
     font-weight: 600 !important;
     color: #94a3b8 !important;
-    padding: 10px 12px !important;
+    padding: 8px 10px !important;
     background-color: transparent !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] {
@@ -169,7 +170,10 @@ button[data-baseweb="tab"][aria-selected="true"] {
 </style>
 """, unsafe_allow_html=True)
 
-# 3. yfinance 주가 캐싱 함수
+# 3. 파일 관련 상수 정의
+HISTORY_FILE = "portfolio_history.csv"
+
+# 4. yfinance 주가 캐싱 함수
 @st.cache_data(ttl=3600)  # 1시간 동안 가격 데이터 캐싱
 def fetch_ticker_data(ticker_symbol):
     """
@@ -218,35 +222,65 @@ def fetch_ticker_data(ticker_symbol):
     except Exception as e:
         return None
 
-# 4. 세션 상태 초기화 (Session State)
+# 5. 세션 상태 초기화 (Session State)
 if 'portfolio' not in st.session_state:
-    # 기본 포트폴리오 템플릿
+    # 기본 포트폴리오 템플릿 - 비중 값을 실수(float)로 초기화하여 소수점 입력 호환성 확보
     st.session_state.portfolio = pd.DataFrame([
-        {'종목명': 'KODEX 200', '티커': '069500.KS', '현재가': 35600, '보유수량': 10, '목표비중': 40},
-        {'종목명': 'TIGER 미국나스닥100', '티커': '379800.KS', '현재가': 15400, '보유수량': 40, '목표비중': 60}
+        {'종목명': 'KODEX 200', '티커': '069500.KS', '현재가': 35600, '보유수량': 10, '목표비중': 40.0},
+        {'종목명': 'TIGER 미국나스닥100', '티커': '379800.KS', '현재가': 15400, '보유수량': 40, '목표비중': 60.0}
     ])
 
 if 'cash' not in st.session_state:
     st.session_state.cash = 1000000  # 가용 예수금 기본값 100만원
 
-# 5. UI 타이틀
+# 6. 포트폴리오 히스토리 저장 함수
+def save_portfolio_history(total_wealth, cash, stock_value):
+    today_str = datetime.today().strftime('%Y-%m-%d')
+    new_entry = {
+        'Date': today_str,
+        'TotalWealth': float(total_wealth),
+        'Cash': float(cash),
+        'StockValue': float(stock_value)
+    }
+    
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df_hist = pd.read_csv(HISTORY_FILE)
+        except Exception:
+            df_hist = pd.DataFrame(columns=['Date', 'TotalWealth', 'Cash', 'StockValue'])
+    else:
+        df_hist = pd.DataFrame(columns=['Date', 'TotalWealth', 'Cash', 'StockValue'])
+        
+    df_hist['Date'] = df_hist['Date'].astype(str)
+    
+    # 당일 중복 저장 시 행 대체 (Update), 신규 일자일 시 추가 (Append)
+    if today_str in df_hist['Date'].values:
+        df_hist.loc[df_hist['Date'] == today_str, ['TotalWealth', 'Cash', 'StockValue']] = [
+            float(total_wealth), float(cash), float(stock_value)
+        ]
+    else:
+        df_hist = pd.concat([df_hist, pd.DataFrame([new_entry])], ignore_index=True)
+        
+    df_hist.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
+
+# 7. UI 타이틀
 st.markdown('<div class="app-header">📱 ETF 리밸런싱 계산기</div>', unsafe_allow_html=True)
 st.markdown('<div class="app-subtitle">모바일 최적화 자산배분 플래너 (KODEX, TIGER 등 국내 ETF)</div>', unsafe_allow_html=True)
 
-# 6. 실시간 주가 새로고침 트리거
+# 8. 실시간 주가 새로고침 트리거
 def refresh_prices():
     updated_portfolio = st.session_state.portfolio.copy()
     for index, row in updated_portfolio.iterrows():
         res = fetch_ticker_data(row['티커'])
         if res:
             updated_portfolio.at[index, '현재가'] = res['price']
-            # 기존 종목명이 티커 번호와 같거나 비어있던 경우 한글/영문명 자동 보정
+            # 기존 종목명이 티커 번호와 같거나 비어있던 경우 한글명 자동 보정
             if row['종목명'] == row['티커'] or row['종목명'].strip() == "":
                 updated_portfolio.at[index, '종목명'] = res['name']
     st.session_state.portfolio = updated_portfolio
     st.success("🔄 현재 주가 데이터를 업데이트했습니다!")
 
-# 7. 데이터 전처리 및 계산 로직 호출을 위한 함수화
+# 9. 데이터 전처리 및 계산 로직 호출
 def get_metrics_and_calculations():
     df = st.session_state.portfolio.copy()
     cash = st.session_state.cash
@@ -267,10 +301,9 @@ def get_metrics_and_calculations():
     
     return df, cash, total_etf_value, total_asset, total_target_pct
 
-# 8. 핵심 연산 및 상단 요약 영역 (Summary Cards)
 df_calc, current_cash, total_etfs, total_wealth, target_sum = get_metrics_and_calculations()
 
-# 상단 요약 정보 카드 (2x1 또는 3x1로 좁은 화면에서도 깨지지 않게 2개 컬럼 배치)
+# 10. 상단 요약 영역 (Summary Cards)
 col1, col2 = st.columns(2)
 with col1:
     st.metric(
@@ -279,22 +312,27 @@ with col1:
         delta=f"ETF: {total_etfs:,.0f} 원"
     )
 with col2:
-    status_emoji = "🎯" if abs(target_sum - 100.0) < 0.01 else "⚠️"
-    status_text = "정상" if abs(target_sum - 100.0) < 0.01 else "조정 필요"
+    status_emoji = "🎯" if abs(target_sum - 100.0) < 0.05 else "⚠️"
+    status_text = "정상" if abs(target_sum - 100.0) < 0.05 else "조정 필요"
     st.metric(
         label=f"{status_emoji} 설정 비중 합계", 
         value=f"{target_sum:.1f} %", 
-        delta=status_text if abs(target_sum - 100.0) < 0.01 else f"100% 대비 {target_sum - 100.0:+.1f}%"
+        delta=status_text if abs(target_sum - 100.0) < 0.05 else f"100% 대비 {target_sum - 100.0:+.1f}%"
     )
 
-# 비중 경고 배너
-if abs(target_sum - 100.0) > 0.01:
+# 비중 경고 배너 (오차범위 0.05% 수준으로 완화)
+if abs(target_sum - 100.0) > 0.05:
     st.warning(f"⚠️ 목표 비중의 합이 **{target_sum:.1f}%**입니다. 리밸런싱의 정확한 계산을 위해 100%로 맞추어 주세요.")
 
 st.write("---")
 
-# 9. 탭 인터페이스 (모바일 스크롤 최소화 전략)
-tab1, tab2, tab3 = st.tabs(["🔹 자산 입력 (Inputs)", "📊 비중 차트 (Charts)", "📋 리밸런싱 가이드 (Actions)"])
+# 11. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 탭 추가)
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🔹 자산 입력", 
+    "📊 비중 차트", 
+    "📋 리밸런싱 가이드", 
+    "📈 자산 히스토리"
+])
 
 # ==========================================
 # 🔹 [Tab 1] 자산 입력 및 포트폴리오 에디터
@@ -339,7 +377,7 @@ with tab1:
                         '티커': res['ticker'],
                         '현재가': res['price'],
                         '보유수량': 0,
-                        '목표비중': 0
+                        '목표비중': 0.0 # float형 기본값
                     }
                     st.session_state.portfolio = pd.concat([
                         st.session_state.portfolio, 
@@ -353,15 +391,18 @@ with tab1:
     # 3) st.data_editor 테이블 편집 영역
     st.markdown("##### ✏️ 보유 수량 및 목표 비중 수정")
     
-    # 편집 가능 컬럼 지정 및 설정
+    # 목표 비중을 float 타입으로 강제 변환하여 데이터 에디터 바인딩 오류 방지
+    st.session_state.portfolio['목표비중'] = st.session_state.portfolio['목표비중'].astype(float)
+    
+    # 편집 가능 컬럼 지정 및 설정 (목표비중을 소수점 1자리 실수형으로 변경)
     edited_df = st.data_editor(
         st.session_state.portfolio,
         column_config={
             "종목명": st.column_config.TextColumn("종목명", width="medium"),
-            "티커": st.column_config.TextColumn("티커 (조회용)", disabled=True, width="small"),
+            "티커": st.column_config.TextColumn("티커", disabled=True, width="small"),
             "현재가": st.column_config.NumberColumn("현재가 (원)", format="%d원", width="small"),
             "보유수량": st.column_config.NumberColumn("보유수량 (주)", min_value=0, step=1, format="%d", width="small"),
-            "목표비중": st.column_config.NumberColumn("목표(%)", min_value=0, max_value=100, step=5, format="%d%%", width="small"),
+            "목표비중": st.column_config.NumberColumn("목표(%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f%%", width="small"),
         },
         hide_index=True,
         use_container_width=True,
@@ -376,7 +417,7 @@ with tab1:
     # 4) 종목 삭제 및 주가 새로고침 액션 버튼
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1:
-        if st.button("🔄 주가 새로고침", use_container_width=True, help="yfinance에서 현재가를 다시 불러옵니다."):
+        if st.button("🔄 주가 새로고침", use_container_width=True):
             refresh_prices()
             st.rerun()
     with btn_col2:
@@ -387,15 +428,21 @@ with tab1:
             label_visibility="collapsed"
         )
         if delete_target != "선택 안 함":
-            if st.button("🗑️ 선택 종목 삭제", use_container_width=True, type="secondary"):
+            if st.button("🗑️ 선택 종목 삭제", use_container_width=True):
                 st.session_state.portfolio = st.session_state.portfolio[st.session_state.portfolio['종목명'] != delete_target].reset_index(drop=True)
                 st.success(f"{delete_target} 종목이 삭제되었습니다.")
                 st.rerun()
+                
+    st.write("")
+    # 5) 포트폴리오 저장 버튼 추가
+    if st.button("💾 현재 포트폴리오 저장 (오늘 자 기록)", type="primary", use_container_width=True, help="오늘 자 총자산과 자산 현황을 로컬 히스토리 파일에 저장합니다."):
+        save_portfolio_history(total_wealth, current_cash, total_etfs)
+        st.success(f"📂 {datetime.today().strftime('%Y-%m-%d')} 자산 기록이 성공적으로 저장되었습니다! '자산 히스토리' 탭에서 변화를 확인해 보세요.")
 
     st.markdown("""
     <div class="info-box">
-    💡 <b>Tip:</b> 스마트폰 터치로 테이블의 '보유수량'과 '목표(%)' 칸을 직접 수정할 수 있습니다.<br>
-    한국 ETF는 6자리 숫자만 넣고 <b>➕ 추가</b>를 누르면 가격 정보와 종목명이 자동으로 조회됩니다.
+    💡 <b>Tip:</b> 목표(%) 비중은 <b>소수점 첫째짜리</b>(예: 33.3%)까지 미세 조정이 가능합니다.<br>
+    현재 상태를 저장(💾)해 두시면 매일 자산 변화를 <b>'자산 히스토리'</b> 탭에서 그래프로 모니터링할 수 있습니다.
     </div>
     """, unsafe_allow_html=True)
 
@@ -407,10 +454,7 @@ with tab2:
     st.markdown("#### 📊 현재 vs 목표 비중 비교")
     
     if len(df_calc) > 0:
-        # 모바일 가로 폭을 감안하여 1개의 Donut 차트에 현재/목표 비중을 번갈아 보거나, 두 링을 중첩 혹은 사이드바이사이드로 그립니다.
-        # 모바일 세로형 스크롤 레이아웃에 맞게 2개의 Donut 차트를 위아래로 깔끔하게 배치합니다.
-        
-        # 1. 현재 포트폴리오 실제 비중 (예수금 포함)
+        # 현재 포트폴리오 실제 비중 (예수금 포함)
         current_data = []
         for _, row in df_calc.iterrows():
             if row['평가금액'] > 0:
@@ -420,7 +464,7 @@ with tab2:
             
         df_current_pie = pd.DataFrame(current_data)
         
-        # 2. 목표 포트폴리오 비중
+        # 목표 포트폴리오 비중
         df_target_pie = df_calc[['종목명', '목표비중']].copy().rename(columns={'종목명': '자산', '목표비중': '비중'})
         if target_sum < 100.0:
             df_target_pie = pd.concat([df_target_pie, pd.DataFrame([{'자산': '현금(미배분)', '비중': 100.0 - target_sum}])], ignore_index=True)
@@ -512,7 +556,7 @@ with tab3:
     
     if len(df_calc) == 0:
         st.info("포트폴리오에 종목이 없습니다. 먼저 종목을 설정해 주세요.")
-    elif abs(target_sum - 100.0) > 0.01:
+    elif abs(target_sum - 100.0) > 0.05:
         st.error("⚠️ 리밸런싱 계산을 위해 자산 입력 탭에서 **목표 비중 합계를 100%**로 맞추어 주세요.")
     else:
         # 리밸런싱 가이드 연산 시작
@@ -575,7 +619,7 @@ with tab3:
             </div>
             <div style="font-size: 12px; color: #cbd5e1;">
                 • 리밸런싱 전 예수금: {current_cash:,.0f} 원<br>
-                • 최종 포트폴리오 가치: {final_used_etfs_value:,.0f} 원 ({df_calc['목표비중'].sum()}% 배분)<br>
+                • 최종 포트폴리오 가치: {final_used_etfs_value:,.0f} 원 ({df_calc['목표비중'].sum():.1f}% 배분)<br>
                 • <b>소수점 절사(1주 미만 매수 불가)</b>로 인해 예수금 잔액 <b>{final_estimated_cash:,.0f}원</b>이 남습니다.
             </div>
         </div>
@@ -601,3 +645,84 @@ with tab3:
             """, unsafe_allow_html=True)
             
         st.success("🎉 리밸런싱 결과가 계산되었습니다! 모바일 MTS 앱을 실행하여 주문을 넣어주세요.")
+
+
+# ==========================================
+# 📈 [Tab 4] 자산 히스토리
+# ==========================================
+with tab4:
+    st.markdown("#### 📈 자산 추이 히스토리")
+    
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df_hist = pd.read_csv(HISTORY_FILE)
+        except Exception:
+            df_hist = pd.DataFrame()
+            
+        if not df_hist.empty and len(df_hist) > 0:
+            # 날짜순 정렬
+            df_hist = df_hist.sort_values(by='Date').reset_index(drop=True)
+            
+            # 자산 성장 추이 선 그래프 시각화
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(
+                x=df_hist['Date'],
+                y=df_hist['TotalWealth'],
+                mode='lines+markers',
+                name='총 자산',
+                line=dict(color='#38bdf8', width=3),
+                marker=dict(size=6)
+            ))
+            fig_line.add_trace(go.Scatter(
+                x=df_hist['Date'],
+                y=df_hist['StockValue'],
+                mode='lines+markers',
+                name='주식 평가액',
+                line=dict(color='#818cf8', width=2, dash='dash')
+            ))
+            fig_line.add_trace(go.Scatter(
+                x=df_hist['Date'],
+                y=df_hist['Cash'],
+                mode='lines+markers',
+                name='예수금',
+                line=dict(color='#64748b', width=1.5, dash='dot')
+            ))
+            
+            fig_line.update_layout(
+                height=280,
+                margin=dict(t=20, b=10, l=10, r=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#fafafa', size=11),
+                xaxis=dict(gridcolor='#334155'),
+                yaxis=dict(gridcolor='#334155')
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
+            
+            # 히스토리 데이터 요약 테이블 출력
+            st.markdown("##### 📝 누적 저장 이력")
+            df_disp = df_hist.copy()
+            # 금액 형식 보기 좋게 가공
+            df_disp['TotalWealth'] = df_disp['TotalWealth'].map('{:,.0f}원'.format)
+            df_disp['StockValue'] = df_disp['StockValue'].map('{:,.0f}원'.format)
+            df_disp['Cash'] = df_disp['Cash'].map('{:,.0f}원'.format)
+            
+            # 한글 컬럼명 변환
+            df_disp.columns = ['날짜', '총 자산', '예수금', '주식 평가액']
+            
+            st.dataframe(df_disp, use_container_width=True, hide_index=True)
+            
+            # 리셋 버튼
+            st.write("")
+            if st.button("🗑️ 히스토리 내역 완전 초기화", type="secondary", use_container_width=True):
+                try:
+                    os.remove(HISTORY_FILE)
+                    st.success("자산 히스토리가 완전히 삭제되었습니다.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"히스토리 삭제 실패: {e}")
+        else:
+            st.info("아직 저장된 자산 기록이 없습니다. '자산 입력' 탭 하단에서 오늘 자 상태를 저장해 보세요!")
+    else:
+        st.info("아직 저장된 자산 기록이 없습니다. '자산 입력' 탭 하단에서 오늘 자 상태를 저장해 보세요!")
