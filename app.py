@@ -92,10 +92,10 @@ div[data-testid="stMetricLabel"] {
 
 /* 탭 버튼 스타일링 */
 button[data-baseweb="tab"] {
-    font-size: 14px !important;
+    font-size: 13px !important; /* 모바일 폭 고려하여 폰트 소폭 축소 */
     font-weight: 600 !important;
     color: #94a3b8 !important;
-    padding: 8px 10px !important;
+    padding: 6px 8px !important;
     background-color: transparent !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] {
@@ -172,6 +172,7 @@ button[data-baseweb="tab"][aria-selected="true"] {
 
 # 3. 파일 관련 상수 정의
 HISTORY_FILE = "portfolio_history.csv"
+SHARED_GUIDES_FILE = "shared_guides.csv"
 
 # 4. yfinance 주가 캐싱 함수
 @st.cache_data(ttl=3600)  # 1시간 동안 가격 데이터 캐싱
@@ -263,6 +264,30 @@ def save_portfolio_history(total_wealth, cash, stock_value):
         
     df_hist.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
 
+# 6.2. 서버 공유 가이드 저장 함수
+def save_shared_guide(publisher, title, content):
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+    post_id = int(datetime.now().timestamp() * 1000) # 고유 ID로 타임스탬프 사용
+    
+    new_post = {
+        'Id': post_id,
+        'Date': now_str,
+        'Publisher': publisher.strip() if publisher.strip() else "익명",
+        'Title': title.strip() if title.strip() else "공동 리밸런싱 지침",
+        'Content': content
+    }
+    
+    if os.path.exists(SHARED_GUIDES_FILE):
+        try:
+            df_shared = pd.read_csv(SHARED_GUIDES_FILE)
+        except Exception:
+            df_shared = pd.DataFrame(columns=['Id', 'Date', 'Publisher', 'Title', 'Content'])
+    else:
+        df_shared = pd.DataFrame(columns=['Id', 'Date', 'Publisher', 'Title', 'Content'])
+        
+    df_shared = pd.concat([df_shared, pd.DataFrame([new_post])], ignore_index=True)
+    df_shared.to_csv(SHARED_GUIDES_FILE, index=False, encoding='utf-8-sig')
+
 # 7. UI 타이틀
 st.markdown('<div class="app-header">📱 ETF 리밸런싱 계산기</div>', unsafe_allow_html=True)
 st.markdown('<div class="app-subtitle">모바일 최적화 자산배분 플래너 (KODEX, TIGER 등 국내 ETF)</div>', unsafe_allow_html=True)
@@ -326,12 +351,13 @@ if abs(target_sum - 100.0) > 0.05:
 
 st.write("---")
 
-# 11. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 탭 추가)
-tab1, tab2, tab3, tab4 = st.tabs([
+# 11. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 및 공유피드 탭 추가)
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔹 자산 입력", 
     "📊 비중 차트", 
-    "📋 리밸런싱 가이드", 
-    "📈 자산 히스토리"
+    "📋 가이드", 
+    "📈 히스토리",
+    "📣 공유 피드"
 ])
 
 # ==========================================
@@ -359,6 +385,7 @@ with tab1:
         new_ticker = st.text_input(
             "종목코드/티커 추가", 
             placeholder="예: 379800 또는 069500",
+            key="add_ticker_input",
             label_visibility="collapsed"
         )
     with add_col2:
@@ -417,7 +444,7 @@ with tab1:
     # 4) 종목 삭제 및 주가 새로고침 액션 버튼
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1:
-        if st.button("🔄 주가 새로고침", use_container_width=True):
+        if st.button("🔄 주가 새로고침", use_container_width=True, key="refresh_prices_btn"):
             refresh_prices()
             st.rerun()
     with btn_col2:
@@ -425,17 +452,18 @@ with tab1:
         delete_target = st.selectbox(
             "삭제할 종목 선택", 
             options=["선택 안 함"] + list(st.session_state.portfolio['종목명'].values),
+            key="delete_select_box",
             label_visibility="collapsed"
         )
         if delete_target != "선택 안 함":
-            if st.button("🗑️ 선택 종목 삭제", use_container_width=True):
+            if st.button("🗑️ 선택 종목 삭제", use_container_width=True, key="delete_etf_btn"):
                 st.session_state.portfolio = st.session_state.portfolio[st.session_state.portfolio['종목명'] != delete_target].reset_index(drop=True)
                 st.success(f"{delete_target} 종목이 삭제되었습니다.")
                 st.rerun()
                 
     st.write("")
     # 5) 포트폴리오 저장 버튼 추가
-    if st.button("💾 현재 포트폴리오 저장 (오늘 자 기록)", type="primary", use_container_width=True, help="오늘 자 총자산과 자산 현황을 로컬 히스토리 파일에 저장합니다."):
+    if st.button("💾 현재 포트폴리오 저장 (오늘 자 기록)", type="primary", use_container_width=True, help="오늘 자 총자산과 자산 현황을 로컬 히스토리 파일에 저장합니다.", key="save_today_btn"):
         save_portfolio_history(total_wealth, current_cash, total_etfs)
         st.success(f"📂 {datetime.today().strftime('%Y-%m-%d')} 자산 기록이 성공적으로 저장되었습니다! '자산 히스토리' 탭에서 변화를 확인해 보세요.")
 
@@ -549,7 +577,7 @@ with tab2:
 
 
 # ==========================================
-# 📋 [Tab 3] 리밸런싱 가이드
+# 📋 [Tab 3] 리밸런싱 가이드 (Actions)
 # ==========================================
 with tab3:
     st.markdown("#### 🛒 리밸런싱 주문 가이드")
@@ -633,7 +661,6 @@ with tab3:
         
         # 거래 대상 목록 카드 출력
         st.markdown("##### 📋 주문 가이드 리스트")
-        
         for plan in action_plans:
             st.markdown(f"""
             <div class="{plan['class']}">
@@ -651,6 +678,27 @@ with tab3:
             """, unsafe_allow_html=True)
             
         st.success("🎉 리밸런싱 결과가 계산되었습니다! 모바일 MTS 앱을 실행하여 주문을 넣어주세요.")
+        
+        # --- 서버 공지용 공유 가이드 텍스트 자동 빌드 ---
+        shared_guide_text = f"📋 [포트폴리오 리밸런싱 지침]\n"
+        shared_guide_text += f"• 생성 시점: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        shared_guide_text += f"• 총 자산 평가액: {total_wealth:,.0f} 원\n"
+        shared_guide_text += f"• 리밸런싱 후 예수금 잔액: {final_estimated_cash:,.0f} 원\n\n"
+        shared_guide_text += "[주문 수행 목록]\n"
+        for plan in action_plans:
+            clean_details = plan['details'].replace("<b>", "").replace("</b>", "").replace("<br>", "\n  └ ")
+            shared_guide_text += f"- {plan['etf']} -> {plan['text']}\n  └ {clean_details}\n"
+
+        # --- 서버 업로드 인터페이스 폼 ---
+        st.write("---")
+        with st.expander("📣 이 가이드를 공유 게시판(공지)에 등록하기"):
+            pub_name = st.text_input("👤 작성자 이름", value="공식 어드바이저", max_chars=15, key="publisher_name_input")
+            pub_title = st.text_input("✍️ 공지 제목", value=f"{datetime.today().strftime('%m/%d')} 포트폴리오 리밸런싱 가이드", max_chars=40, key="publish_title_input")
+            
+            if st.button("🚀 공유 피드에 공지하기", type="primary", use_container_width=True, key="share_submit_btn"):
+                save_shared_guide(pub_name, pub_title, shared_guide_text)
+                st.success("📣 성공적으로 공유 가이드(Feed) 탭에 업로드되었습니다!")
+                st.rerun()
 
 
 # ==========================================
@@ -721,7 +769,7 @@ with tab4:
             
             # 리셋 버튼
             st.write("")
-            if st.button("🗑️ 히스토리 내역 완전 초기화", type="secondary", use_container_width=True):
+            if st.button("🗑️ 히스토리 내역 완전 초기화", type="secondary", use_container_width=True, key="reset_history_btn"):
                 try:
                     os.remove(HISTORY_FILE)
                     st.success("자산 히스토리가 완전히 삭제되었습니다.")
@@ -732,3 +780,52 @@ with tab4:
             st.info("아직 저장된 자산 기록이 없습니다. '자산 입력' 탭 하단에서 오늘 자 상태를 저장해 보세요!")
     else:
         st.info("아직 저장된 자산 기록이 없습니다. '자산 입력' 탭 하단에서 오늘 자 상태를 저장해 보세요!")
+
+
+# ==========================================
+# 📣 [Tab 5] 공유 피드 (Shared Feed)
+# ==========================================
+with tab5:
+    st.markdown("#### 📣 공유 가이드 및 공지사항")
+    
+    if os.path.exists(SHARED_GUIDES_FILE):
+        try:
+            df_shared = pd.read_csv(SHARED_GUIDES_FILE)
+        except Exception:
+            df_shared = pd.DataFrame()
+            
+        if not df_shared.empty and len(df_shared) > 0:
+            # 고유 ID 기준 역순 정렬 (최신글 우선 배치)
+            df_shared = df_shared.sort_values(by='Id', ascending=False).reset_index(drop=True)
+            
+            for index, row in df_shared.iterrows():
+                # 카드 형식 스타일 렌더링
+                st.markdown(f"""
+                <div style="background-color: #1e293b; border-radius: 8px; padding: 12px; margin-top: 15px; border: 1px solid #334155;">
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 5px;">
+                        <span>👤 작성자: <b>{row['Publisher']}</b></span>
+                        <span>📅 등록: {row['Date']}</span>
+                    </div>
+                    <div style="font-weight: 700; font-size: 14px; color: #38bdf8; margin-bottom: 5px;">
+                        📣 {row['Title']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 가이드 본문은 모바일 가독성을 위해 접이식 expander로 제공
+                with st.expander("🔍 상세 가이드 및 주문 지침 열기"):
+                    st.text(row['Content'])
+                    
+            # 공유 피드 전체 리셋 버튼
+            st.write("---")
+            if st.button("🗑️ 공유 가이드 피드 전체 삭제", type="secondary", use_container_width=True, key="reset_feed_btn"):
+                try:
+                    os.remove(SHARED_GUIDES_FILE)
+                    st.success("공유 피드 데이터가 성공적으로 초기화되었습니다.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"초기화 실패: {e}")
+        else:
+            st.info("아직 공유된 공지사항이나 가이드가 없습니다. '가이드' 탭 하단에서 공유 등록을 진행해 보세요!")
+    else:
+        st.info("아직 공유된 공지사항이나 가이드가 없습니다. '가이드' 탭 하단에서 공유 등록을 진행해 보세요!")
