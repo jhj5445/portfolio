@@ -799,22 +799,22 @@ with tab5:
             df_shared = df_shared.sort_values(by='Id', ascending=False).reset_index(drop=True)
             
             for index, row in df_shared.iterrows():
-                # 카드 형식 스타일 렌더링
-                st.markdown(f"""
-                <div style="background-color: #1e293b; border-radius: 8px; padding: 12px; margin-top: 15px; border: 1px solid #334155;">
-                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 5px;">
-                        <span>👤 작성자: <b>{row['Publisher']}</b></span>
-                        <span>📅 등록: {row['Date']}</span>
-                    </div>
-                    <div style="font-weight: 700; font-size: 14px; color: #38bdf8; margin-bottom: 5px;">
-                        📣 {row['Title']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                # 작성자명과 제목을 조화롭게 일체화한 세련된 카드형 Expander 타이틀 구성
+                card_title = f"📣 [{row['Publisher']}] {row['Title']}"
                 
-                # 가이드 본문은 모바일 가독성을 위해 접이식 expander로 제공
-                with st.expander("🔍 상세 가이드 및 주문 지침 열기"):
-                    st.text(row['Content'])
+                # f-string 중괄호 내 백슬래시 사용 제한 우회를 위해 외부에서 미리 변환 수행
+                formatted_content = str(row['Content']).replace('\n', '<br>')
+                
+                with st.expander(card_title):
+                    # 게시일 표시 및 내용 영역 스타일링
+                    st.markdown(f"""
+                    <div style="font-size: 11px; color: #94a3b8; text-align: right; margin-bottom: 8px;">
+                        📅 등록일: {row['Date']}
+                    </div>
+                    <div style="background-color: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; font-size: 13px; line-height: 1.7; color: #cbd5e1; font-family: 'Noto Sans KR', sans-serif;">
+                        {formatted_content}
+                    </div>
+                    """, unsafe_allow_html=True)
                     
             # 공유 피드 전체 리셋 버튼
             st.write("---")
