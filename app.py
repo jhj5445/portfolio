@@ -42,177 +42,205 @@ st.set_page_config(
     initial_sidebar_state="collapsed" # 사이드바 기본 숨김
 )
 
-# 2. 고급 스타일링 (CSS 주입 - 가독성 향상 패치)
+# 2. 고급 스타일링 (CSS 주입 - 가독성 극대화 라이트 테마 패치)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Outfit:wght@400;600;700;800&display=swap');
 
-/* 전체 앱 글꼴 및 배경색 - 텍스트 색상 명도 상향 */
+/* 전체 앱 글꼴 및 배경색 - 눈이 편안한 라이트 슬레이트 테마 */
 html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
     font-family: 'Noto Sans KR', 'Outfit', sans-serif;
-    background-color: #0f172a; /* Slate 900 다크블루 */
-    color: #f1f5f9 !important; /* 훨씬 밝은 흰색조로 가시성 확보 */
+    background-color: #f8fafc !important; /* 밝고 깨끗한 오프화이트 배경 */
+    color: #0f172a !important; /* 짙은 남색 텍스트로 가독성 최대화 */
 }
 
 /* 앱 타이틀 영역 스타일 */
 .app-header {
-    background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 800;
-    font-size: 26px;
+    font-size: 28px;
     text-align: center;
     margin-bottom: 5px;
     margin-top: 10px;
 }
 .app-subtitle {
     font-size: 14px;
-    color: #cbd5e1; /* 서브타이틀 명도 증가 */
+    color: #2563eb !important; /* 밝고 또렷한 블루 */
     text-align: center;
     margin-bottom: 20px;
 }
 
-/* 카드 뉴스 스타일의 메트릭 카드 커스텀 */
+/* 카드 뉴스 스타일의 메트릭 카드 커스텀 - 밝은 카드에 선명한 테두리 */
 div[data-testid="metric-container"] {
-    background-color: #1e293b; /* Slate 800 */
+    background-color: #ffffff !important; /* 순수 흰색 배경 */
     border-radius: 12px;
-    padding: 14px 18px;
-    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-    border: 1px solid #475569;
+    padding: 16px 20px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08); /* 부드러운 음영 */
+    border: 2px solid #3b82f6 !important; /* 선명한 스카이 블루 테두리 */
     margin-bottom: 12px;
 }
 
 div[data-testid="stMetricValue"] {
-    font-size: 22px !important;
-    font-weight: 700 !important;
-    color: #38bdf8 !important;
+    font-size: 24px !important;
+    font-weight: 800 !important;
+    color: #1d4ed8 !important; /* 더 짙고 또렷한 딥 블루 */
 }
 
 div[data-testid="stMetricLabel"] {
-    font-size: 13px !important;
-    color: #cbd5e1 !important; /* 라벨 가시성 확보 */
+    font-size: 14px !important;
+    color: #1e293b !important; /* 짙은 회색 라벨 */
+    font-weight: 700 !important;
 }
 
-/* 탭 버튼 스타일링 - 글자 크기 키우고 색상 대조 대폭 강화 */
+/* Streamlit의 다양한 위젯 글씨가 회색으로 흘러내리는 현상 방지 패치 */
+p, label, [data-testid="stWidgetLabel"], div[data-testid="stMarkdownContainer"] p {
+    color: #0f172a !important; /* 극강의 고대비 남색 */
+    font-weight: 700 !important;
+}
+
+/* 입력 위젯 내부 텍스트 및 기본 위젯 글자색 강화 */
+input, select, textarea, div[role="textbox"], [data-baseweb="select"] {
+    color: #0f172a !important;
+    font-weight: 600 !important;
+}
+
+/* 탭 버튼 스타일링 - 선명한 회색에서 활성 시 선명한 로열 블루 */
 button[data-baseweb="tab"] {
     font-size: 16px !important; 
-    font-weight: 700 !important;
-    color: #94a3b8 !important;
+    font-weight: 800 !important;
+    color: #475569 !important; /* 선명한 미디움 회색 */
     padding: 10px 14px !important;
     background-color: transparent !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] {
-    color: #38bdf8 !important; /* 스카이블루 활성화 강조 */
-    border-bottom: 3.5px solid #38bdf8 !important;
+    color: #2563eb !important; 
+    border-bottom: 4px solid #2563eb !important;
 }
 
-/* 리밸런싱 액션 카드 스타일 */
+/* 리밸런싱 액션 카드 스타일 - 연한 배경과 짙은 보더로 가시성 극대화 */
 .action-card {
-    background-color: #1e293b;
-    border-left: 5px solid #10b981; /* 기본 매수(초록색) */
+    background-color: #ecfdf5 !important; /* 연한 초록빛 배경 (매수) */
+    border-left: 6px solid #10b981; 
     border-radius: 8px;
-    padding: 14px;
+    padding: 16px;
     margin-bottom: 12px;
-    border-top: 1px solid #334155;
-    border-right: 1px solid #334155;
-    border-bottom: 1px solid #334155;
+    border-top: 1.5px solid #a7f3d0;
+    border-right: 1.5px solid #a7f3d0;
+    border-bottom: 1.5px solid #a7f3d0;
 }
 .action-card.action-sell {
-    border-left-color: #f43f5e; /* 매도(붉은색) */
+    background-color: #ffe4e6 !important; /* 연한 분홍빛 배경 (매도) */
+    border-left-color: #f43f5e;
+    border-top-color: #fecdd3;
+    border-right-color: #fecdd3;
+    border-bottom-color: #fecdd3;
 }
 .action-card.action-keep {
-    border-left-color: #64748b; /* 유지(회색) */
+    background-color: #f1f5f9 !important; /* 연한 회색 배경 (유지) */
+    border-left-color: #94a3b8;
+    border-top-color: #e2e8f0;
+    border-right-color: #e2e8f0;
+    border-bottom-color: #e2e8f0;
 }
 
 .action-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-weight: 700;
-    font-size: 15px;
+    font-weight: 800;
+    font-size: 16px;
     margin-bottom: 6px;
+    color: #0f172a !important; /* 짙은 남색 */
 }
 .badge-buy {
     background-color: #064e3b;
     color: #34d399;
-    padding: 2px 8px;
+    padding: 4px 10px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 700;
 }
 .badge-sell {
     background-color: #4c0519;
     color: #fb7185;
-    padding: 2px 8px;
+    padding: 4px 10px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 700;
 }
 .badge-keep {
     background-color: #334155;
-    color: #94a3b8;
-    padding: 2px 8px;
+    color: #f1f5f9;
+    padding: 4px 10px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 700;
 }
 
 .action-body {
-    font-size: 13px;
-    color: #cbd5e1;
-    line-height: 1.5;
+    font-size: 14px;
+    color: #1e293b !important; /* 가시성 좋은 진회색 */
+    line-height: 1.6;
+    font-weight: 500;
 }
 
 /* 추가 정보 박스 */
 .info-box {
-    background-color: #0f172a;
-    border: 1px solid #475569;
-    border-radius: 6px;
-    padding: 12px;
-    font-size: 13px;
-    color: #cbd5e1;
+    background-color: #eff6ff !important; /* 부드러운 하늘색 배경 */
+    border: 2px solid #bfdbfe !important;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 14px;
+    color: #1e3a8a !important; /* 짙은 남색 텍스트 */
     margin-top: 10px;
 }
 
 /* ==========================================
-   🚨 st.button 가시성 완전 해결 🚨
-   하얀 배경에 하얀 글자가 나와 가시성이 제로였던 에러를 강제 오버라이딩합니다.
+   🚨 st.button 고대비 라이트 테마 패치 🚨
+   선명한 로열 블루와 오렌지 골드로 가시성을 보장합니다.
    ========================================== */
 div.stButton > button {
-    background-color: #1e293b !important; /* 어두운 슬레이트 블루 */
-    color: #38bdf8 !important; /* 확실한 스카이블루 텍스트 */
-    border: 1.5px solid #475569 !important; /* 눈에 띄는 테두리선 */
+    background-color: #2563eb !important; /* 선명하고 신뢰감 주는 로열 블루 */
+    color: #ffffff !important; /* 쨍한 순수 흰색 글자색 */
+    border: 1px solid #1d4ed8 !important;
     border-radius: 8px !important;
-    font-weight: 700 !important;
-    font-size: 14px !important;
+    font-weight: 800 !important;
+    font-size: 15px !important;
     padding: 10px 20px !important;
     transition: all 0.2s ease !important;
     width: 100% !important;
     height: auto !important;
+    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.1) !important;
 }
 
 div.stButton > button:hover {
-    background-color: #334155 !important;
-    color: #ffffff !important; /* 호버 시에는 글씨 완전히 흰색 */
-    border-color: #38bdf8 !important;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3) !important;
+    background-color: #1d4ed8 !important; /* 호버 시 한 단계 짙은 블루 */
+    border-color: #1e40af !important;
+    box-shadow: 0 4px 8px rgba(37, 99, 235, 0.2) !important;
 }
 
-/* Primary 강조 버튼 커스텀 (반영 및 등록 버튼 등) */
+/* Primary 강조 버튼 커스텀 (반영 및 추가 등 핵심 액션 버튼) */
 div.stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%) !important;
-    color: #0f172a !important; /* 글씨를 매우 짙은 다크 블루로 고정하여 명암 대비 100% 확보 */
-    border: none !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%) !important; /* 강렬한 골드/오렌지 그라디언트 */
+    color: #000000 !important; /* 완전한 검은색 글씨로 시인성 극대화 */
+    border: 1px solid #d97706 !important;
+    box-shadow: 0 4px 8px rgba(245, 158, 11, 0.2) !important;
 }
 
 div.stButton > button[kind="primary"]:hover {
-    opacity: 0.9 !important;
-    box-shadow: 0 4px 12px rgba(129, 140, 248, 0.5) !important;
-    color: #0f172a !important;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+    border-color: #b45309 !important;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3) !important;
+    color: #000000 !important;
 }
 
-/* 데이터 프레임 / 테이블 가독성 강화 */
-.ag-theme-alpine, .ag-cell, [data-testid="stTable"] td {
-    font-size: 15px !important;
-    font-weight: 500 !important;
+/* 데이터 프레임 / 테이블 가독성 강화 (글씨 진하게, 짙은 남색) */
+.ag-theme-alpine, .ag-cell, [data-testid="stTable"] td, div[data-testid="stDataFrame"] {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: #0f172a !important; /* 짙은 남색 */
 }
 </style>
 """, unsafe_allow_html=True)
@@ -664,7 +692,7 @@ with tab2:
             height=280,
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='#fafafa')
+            font=dict(color='#0f172a')
         )
         st.plotly_chart(fig_curr, use_container_width=True)
         
@@ -683,7 +711,7 @@ with tab2:
             height=280,
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='#fafafa')
+            font=dict(color='#0f172a')
         )
         st.plotly_chart(fig_targ, use_container_width=True)
 
@@ -718,8 +746,8 @@ with tab2:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='#fafafa', size=11),
-            xaxis=dict(title="비중 (%)", gridcolor='#334155'),
+            font=dict(color='#0f172a', size=11),
+            xaxis=dict(title="비중 (%)", gridcolor='#cbd5e1'),
             yaxis=dict(gridcolor='rgba(0,0,0,0)')
         )
         st.plotly_chart(fig_bar, use_container_width=True)
@@ -762,8 +790,8 @@ with tab3:
             # 6자리 순수 종목코드 추출 (.KS 제거) 및 클립보드 복사 HTML 버튼 빌드
             pure_code = ticker_name.split('.')[0]
             copy_btn_html = f"""
-            <button onclick="navigator.clipboard.writeText('{pure_code}'); this.innerText='복사 완료! ✅'; this.style.borderColor='#10b981'; this.style.color='#10b981'; setTimeout(() => {{ this.innerText='📋 복사'; this.style.borderColor='#475569'; this.style.color='#38bdf8'; }}, 2000);" 
-            style="background-color: #0f172a; color: #38bdf8; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; margin-left: 8px; font-family: 'Noto Sans KR', sans-serif; display: inline-block; vertical-align: middle;">
+            <button onclick="navigator.clipboard.writeText('{pure_code}'); this.innerText='복사 완료! ✅'; this.style.borderColor='#10b981'; this.style.color='#10b981'; setTimeout(() => {{ this.innerText='📋 복사'; this.style.borderColor='#cbd5e1'; this.style.color='#2563eb'; }}, 2000);" 
+            style="background-color: #ffffff; color: #2563eb; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; margin-left: 8px; font-family: 'Noto Sans KR', sans-serif; display: inline-block; vertical-align: middle; font-weight: 700;">
                 📋 복사
             </button>
             """
@@ -807,12 +835,12 @@ with tab3:
         
         # 리밸런싱 결과 요약
         st.markdown(f"""
-        <div style="background-color: #1e293b; border-radius: 8px; padding: 15px; margin-bottom: 20px; border: 1px solid #334155;">
-            <div style="font-size: 13px; color: #94a3b8; margin-bottom: 4px;">리밸런싱 매매 요약</div>
-            <div style="font-size: 16px; font-weight: 700; margin-bottom: 8px;">
-                최종 예상 예수금 잔고: <span style="color: #38bdf8; font-size: 18px;">{final_estimated_cash:,.0f} 원</span>
+        <div style="background-color: #eff6ff; border-radius: 8px; padding: 15px; margin-bottom: 20px; border: 1px solid #bfdbfe;">
+            <div style="font-size: 13px; color: #1e3a8a; margin-bottom: 4px; font-weight: 700;">리밸런싱 매매 요약</div>
+            <div style="font-size: 16px; font-weight: 800; margin-bottom: 8px; color: #0f172a;">
+                최종 예상 예수금 잔고: <span style="color: #2563eb; font-size: 18px;">{final_estimated_cash:,.0f} 원</span>
             </div>
-            <div style="font-size: 12px; color: #cbd5e1;">
+            <div style="font-size: 12px; color: #334155; font-weight: 500;">
                 • 리밸런싱 전 예수금: {current_cash:,.0f} 원<br>
                 • 최종 포트폴리오 가치: {final_used_etfs_value:,.0f} 원 ({df_calc['목표비중'].sum():.1f}% 배분)<br>
                 • <b>소수점 절사(1주 미만 매수 불가)</b>로 인해 예수금 잔액 <b>{final_estimated_cash:,.0f}원</b>이 남습니다.
@@ -934,9 +962,9 @@ with tab4:
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#fafafa', size=11),
-                xaxis=dict(gridcolor='#334155'),
-                yaxis=dict(gridcolor='#334155')
+                font=dict(color='#0f172a', size=11),
+                xaxis=dict(gridcolor='#cbd5e1'),
+                yaxis=dict(gridcolor='#cbd5e1')
             )
             st.plotly_chart(fig_line, use_container_width=True)
             
@@ -994,10 +1022,10 @@ with tab5:
                 with st.expander(card_title):
                     # 게시일 표시 및 내용 영역 스타일링
                     st.markdown(f"""
-                    <div style="font-size: 11px; color: #94a3b8; text-align: right; margin-bottom: 8px;">
+                    <div style="font-size: 11px; color: #475569; text-align: right; margin-bottom: 8px; font-weight: 600;">
                         📅 등록일: {row['Date']}
                     </div>
-                    <div style="background-color: #0f172a; border-radius: 8px; padding: 14px; border: 1px solid #334155; font-size: 13px; line-height: 1.7; color: #cbd5e1; font-family: 'Noto Sans KR', sans-serif;">
+                    <div style="background-color: #ffffff; border-radius: 8px; padding: 14px; border: 1px solid #cbd5e1; font-size: 13px; line-height: 1.7; color: #334155; font-family: 'Noto Sans KR', sans-serif; font-weight: 500;">
                         {formatted_content}
                     </div>
                     """, unsafe_allow_html=True)
@@ -1010,7 +1038,7 @@ with tab5:
                     st.success("공유 피드 데이터가 성공적으로 초기화되었습니다.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"초기화 실패: {e}")
+                    st.error(f"공유 피드 초기화 실패: {e}")
         else:
             st.info("아직 공유된 공지사항이나 가이드가 없습니다. '가이드' 탭 하단에서 공유 등록을 진행해 보세요!")
     else:
