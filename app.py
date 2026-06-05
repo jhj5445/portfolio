@@ -790,7 +790,33 @@ with tab3:
             # 6자리 순수 종목코드 추출 (.KS 제거) 및 클립보드 복사 HTML 버튼 빌드
             pure_code = ticker_name.split('.')[0]
             copy_btn_html = f"""
-            <button onclick="navigator.clipboard.writeText('{pure_code}'); this.innerText='복사 완료! ✅'; this.style.borderColor='#10b981'; this.style.color='#10b981'; setTimeout(() => {{ this.innerText='📋 복사'; this.style.borderColor='#cbd5e1'; this.style.color='#2563eb'; }}, 2000);" 
+            <button onclick="(function(text, btn){{
+                if(navigator.clipboard && navigator.clipboard.writeText) {{
+                    navigator.clipboard.writeText(text).then(function(){{
+                        btn.innerText='복사 완료! ✅'; btn.style.borderColor='#10b981'; btn.style.color='#10b981';
+                    }});
+                }} else {{
+                    var el = document.createElement('textarea');
+                    el.value = text;
+                    el.style.position='fixed'; el.style.top='0'; el.style.left='0'; el.style.opacity='0';
+                    document.body.appendChild(el);
+                    el.select();
+                    try {{
+                        var successful = document.execCommand('copy');
+                        if(successful) {{
+                            btn.innerText='복사 완료! ✅'; btn.style.borderColor='#10b981'; btn.style.color='#10b981';
+                        }} else {{
+                            btn.innerText='복사 실패 ❌';
+                        }}
+                    }} catch(err) {{
+                        btn.innerText='에러 ❌';
+                    }}
+                    document.body.removeChild(el);
+                }}
+                setTimeout(function(){{
+                    btn.innerText='📋 복사'; btn.style.borderColor='#cbd5e1'; btn.style.color='#2563eb';
+                }}, 2000);
+            }})('{pure_code}', this);" 
             style="background-color: #ffffff; color: #2563eb; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; margin-left: 8px; font-family: 'Noto Sans KR', sans-serif; display: inline-block; vertical-align: middle; font-weight: 700;">
                 📋 복사
             </button>
