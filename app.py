@@ -714,6 +714,16 @@ with tab3:
             etf_name = row['종목명']
             ticker_name = row['티커']
             
+            # 6자리 순수 종목코드 추출 (.KS 제거) 및 클립보드 복사 HTML 버튼 빌드
+            pure_code = ticker_name.split('.')[0]
+            copy_btn_html = f"""
+            <button onclick="navigator.clipboard.writeText('{pure_code}'); this.innerText='복사 완료! ✅'; this.style.borderColor='#10b981'; this.style.color='#10b981'; setTimeout(() => {{ this.innerText='📋 복사'; this.style.borderColor='#475569'; this.style.color='#38bdf8'; }}, 2000);" 
+            style="background-color: #0f172a; color: #38bdf8; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; transition: all 0.2s ease; margin-left: 8px; font-family: 'Noto Sans KR', sans-serif; display: inline-block; vertical-align: middle;">
+                📋 복사
+            </button>
+            """
+            etf_header_text = f"<span>{etf_name} ({pure_code}) {copy_btn_html}</span>"
+            
             trade_value = abs(diff_q * price)
             
             if diff_q > 0:
@@ -722,7 +732,7 @@ with tab3:
                     'text': f"🛒 **{diff_q}주 추가 매수**",
                     'class': 'action-card',
                     'badge': '<span class="badge-buy">추가 매수</span>',
-                    'etf': f"{etf_name} ({ticker_name.split('.')[0]})",
+                    'etf': etf_header_text,
                     'details': f"현재 {row['보유수량']}주 ➔ 목표 {row['목표수량']}주<br>예상 거래 금액: <b>{trade_value:,.0f} 원</b> (현재가: {price:,.0f}원)"
                 })
                 total_required_cash += trade_value
@@ -732,7 +742,7 @@ with tab3:
                     'text': f"✂️ **{abs(diff_q)}주 매도**",
                     'class': 'action-card action-sell',
                     'badge': '<span class="badge-sell">축소 매도</span>',
-                    'etf': f"{etf_name} ({ticker_name.split('.')[0]})",
+                    'etf': etf_header_text,
                     'details': f"현재 {row['보유수량']}주 ➔ 목표 {row['목표수량']}주<br>예상 확보 금액: <b>{trade_value:,.0f} 원</b> (현재가: {price:,.0f}원)"
                 })
                 total_required_cash -= trade_value  # 매도는 현금 유입
@@ -742,7 +752,7 @@ with tab3:
                     'text': "🔍 **변동 없음 (유지)**",
                     'class': 'action-card action-keep',
                     'badge': '<span class="badge-keep">비중 유지</span>',
-                    'etf': f"{etf_name} ({ticker_name.split('.')[0]})",
+                    'etf': etf_header_text,
                     'details': f"현재 {row['보유수량']}주 ➔ 목표 {row['목표수량']}주<br>현재가: {price:,.0f}원"
                 })
 
