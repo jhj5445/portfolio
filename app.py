@@ -4,6 +4,8 @@ import ssl
 import urllib3
 import os
 import json
+import requests
+from bs4 import BeautifulSoup
 
 # SSL 경고 무시 및 SSL 기본 컨텍스트 변경
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -40,16 +42,16 @@ st.set_page_config(
     initial_sidebar_state="collapsed" # 사이드바 기본 숨김
 )
 
-# 2. 고급 스타일링 (CSS 주입)
+# 2. 고급 스타일링 (CSS 주입 - 가독성 향상 패치)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Outfit:wght@400;600;700;800&display=swap');
 
-/* 전체 앱 글꼴 및 배경색 */
+/* 전체 앱 글꼴 및 배경색 - 텍스트 색상 명도 상향 */
 html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
     font-family: 'Noto Sans KR', 'Outfit', sans-serif;
     background-color: #0f172a; /* Slate 900 다크블루 */
-    color: #f8fafc;
+    color: #f1f5f9 !important; /* 훨씬 밝은 흰색조로 가시성 확보 */
 }
 
 /* 앱 타이틀 영역 스타일 */
@@ -58,14 +60,14 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 800;
-    font-size: 24px;
+    font-size: 26px;
     text-align: center;
     margin-bottom: 5px;
     margin-top: 10px;
 }
 .app-subtitle {
-    font-size: 13px;
-    color: #94a3b8;
+    font-size: 14px;
+    color: #cbd5e1; /* 서브타이틀 명도 증가 */
     text-align: center;
     margin-bottom: 20px;
 }
@@ -74,34 +76,34 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
 div[data-testid="metric-container"] {
     background-color: #1e293b; /* Slate 800 */
     border-radius: 12px;
-    padding: 12px 16px;
+    padding: 14px 18px;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-    border: 1px solid #334155;
+    border: 1px solid #475569;
     margin-bottom: 12px;
 }
 
 div[data-testid="stMetricValue"] {
-    font-size: 20px !important;
+    font-size: 22px !important;
     font-weight: 700 !important;
     color: #38bdf8 !important;
 }
 
 div[data-testid="stMetricLabel"] {
-    font-size: 12px !important;
-    color: #94a3b8 !important;
+    font-size: 13px !important;
+    color: #cbd5e1 !important; /* 라벨 가시성 확보 */
 }
 
-/* 탭 버튼 스타일링 */
+/* 탭 버튼 스타일링 - 글자 크기 키우고 색상 대조 대폭 강화 */
 button[data-baseweb="tab"] {
-    font-size: 13px !important; /* 모바일 폭 고려하여 폰트 소폭 축소 */
-    font-weight: 600 !important;
+    font-size: 16px !important; 
+    font-weight: 700 !important;
     color: #94a3b8 !important;
-    padding: 6px 8px !important;
+    padding: 10px 14px !important;
     background-color: transparent !important;
 }
 button[data-baseweb="tab"][aria-selected="true"] {
-    color: #38bdf8 !important; /* 하늘색 강조 */
-    border-bottom: 3px solid #38bdf8 !important;
+    color: #38bdf8 !important; /* 스카이블루 활성화 강조 */
+    border-bottom: 3.5px solid #38bdf8 !important;
 }
 
 /* 리밸런싱 액션 카드 스타일 */
@@ -161,48 +163,56 @@ button[data-baseweb="tab"][aria-selected="true"] {
 /* 추가 정보 박스 */
 .info-box {
     background-color: #0f172a;
-    border: 1px solid #334155;
+    border: 1px solid #475569;
     border-radius: 6px;
-    padding: 10px;
-    font-size: 12px;
-    color: #94a3b8;
+    padding: 12px;
+    font-size: 13px;
+    color: #cbd5e1;
     margin-top: 10px;
 }
 
 /* ==========================================
-   🚨 st.button 가시성 복구 테마 패치 🚨
-   기존 하얀버튼에 하얀글씨가 겹치는 UI 버그를 해결합니다.
+   🚨 st.button 가시성 완전 해결 🚨
+   하얀 배경에 하얀 글자가 나와 가시성이 제로였던 에러를 강제 오버라이딩합니다.
    ========================================== */
 div.stButton > button {
-    background-color: #1e293b !important; /* 어두운 슬레이트 블루 배경 */
-    color: #38bdf8 !important; /* 선명한 스카이 블루 글씨색 */
-    border: 1px solid #334155 !important;
+    background-color: #1e293b !important; /* 어두운 슬레이트 블루 */
+    color: #38bdf8 !important; /* 확실한 스카이블루 텍스트 */
+    border: 1.5px solid #475569 !important; /* 눈에 띄는 테두리선 */
     border-radius: 8px !important;
-    font-weight: 600 !important;
-    padding: 8px 16px !important;
-    transition: all 0.25s ease !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s ease !important;
     width: 100% !important;
+    height: auto !important;
 }
 
 div.stButton > button:hover {
     background-color: #334155 !important;
-    color: #ffffff !important; /* 호버 시 글씨는 완전히 하얀색 */
+    color: #ffffff !important; /* 호버 시에는 글씨 완전히 흰색 */
     border-color: #38bdf8 !important;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.2) !important;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3) !important;
 }
 
-/* Primary 강조 버튼 커스텀 */
+/* Primary 강조 버튼 커스텀 (반영 및 등록 버튼 등) */
 div.stButton > button[kind="primary"] {
     background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%) !important;
-    color: #0f172a !important; /* 글씨를 매우 짙은 다크 블루로 설정하여 명확한 대비 확보 */
+    color: #0f172a !important; /* 글씨를 매우 짙은 다크 블루로 고정하여 명암 대비 100% 확보 */
     border: none !important;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
 }
 
 div.stButton > button[kind="primary"]:hover {
     opacity: 0.9 !important;
-    box-shadow: 0 4px 12px rgba(129, 140, 248, 0.4) !important;
-    color: #0f172a !important; /* 호버시에도 글씨 어둡게 유지 */
+    box-shadow: 0 4px 12px rgba(129, 140, 248, 0.5) !important;
+    color: #0f172a !important;
+}
+
+/* 데이터 프레임 / 테이블 가독성 강화 */
+.ag-theme-alpine, .ag-cell, [data-testid="stTable"] td {
+    font-size: 15px !important;
+    font-weight: 500 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -212,7 +222,32 @@ HISTORY_FILE = "portfolio_history.csv"
 SHARED_GUIDES_FILE = "shared_guides.csv"
 PORTFOLIO_FILE = "my_portfolio.json" # 내 포트폴리오 설정 영구 저장 파일
 
-# 4. 내 포트폴리오 파일 로드 및 저장 헬퍼 함수
+# 4. 네이버 페이 증권 ETF 한글명 크롤러 함수
+def get_naver_etf_name(ticker_symbol):
+    """
+    네이버 증권 모바일/웹 페이지에서 한국 ETF의 정확한 한글명을 크롤링합니다.
+    """
+    code = ticker_symbol.split('.')[0]
+    # 6자리 숫자인 경우에만 진행
+    if len(code) == 6 and code.isdigit():
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+        }
+        try:
+            res = requests.get(url, headers=headers, timeout=3, verify=False)
+            if res.status_code == 200:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                wrap_company = soup.find('div', {'class': 'wrap_company'})
+                if wrap_company:
+                    h2_tag = wrap_company.find('h2')
+                    if h2_tag:
+                        return h2_tag.text.strip()
+        except Exception:
+            pass
+    return None
+
+# 5. 내 포트폴리오 파일 로드 및 저장 헬퍼 함수
 def load_my_portfolio():
     """
     서버 파일 시스템에 저장된 포트폴리오 현황을 불러옵니다.
@@ -252,7 +287,7 @@ def save_my_portfolio(df, cash):
     except Exception as e:
         pass
 
-# 5. yfinance 주가 캐싱 함수
+# 6. yfinance 주가 캐싱 함수 + 네이버 한글 종목명 바인딩
 @st.cache_data(ttl=3600)  # 1시간 동안 가격 데이터 캐싱
 def fetch_ticker_data(ticker_symbol):
     """
@@ -274,24 +309,36 @@ def fetch_ticker_data(ticker_symbol):
         
         current_price = int(hist['Close'].iloc[-1])
         
-        # 종목명 획득 시도 (한글명 획득 불가시 shortName이나 입력 코드 사용)
+        # 1차로 yfinance shortName 획득
         info = t.info
         name = info.get('shortName', ticker_symbol)
         
-        # 국내 대형 ETF의 경우 잘 알려진 매핑 정보 보완
-        kr_etf_map = {
-            '069500.KS': 'KODEX 200',
-            '379800.KS': 'TIGER 미국나스닥100',
-            '133690.KS': 'TIGER 미국S&P500',
-            '360750.KS': 'TIGER 미국테크TOP10 INDXX',
-            '273130.KS': 'KODEX 종합채권(AA-이상)액티브',
-            '251340.KS': 'KODEX 미국채울트라30년선물(H)',
-            '305080.KS': 'TIGER 200TR',
-            '453810.KS': 'ACE 미국S&P500',
-            '454580.KS': 'KODEX CD금리액티브(합성)'
-        }
-        if ticker_clean in kr_etf_map:
-            name = kr_etf_map[ticker_clean]
+        # 2차로 국내 상장 ETF일 경우 네이버 크롤러로 한글 종목명을 실시간 확보
+        if ticker_clean.endswith('.KS'):
+            naver_name = get_naver_etf_name(ticker_clean)
+            if naver_name:
+                name = naver_name
+            else:
+                # 네이버 조회 실패 시, 영문으로 노출되는 대표 국내 ETF들 보완 매핑
+                kr_etf_map = {
+                    '069500.KS': 'KODEX 200',
+                    '379800.KS': 'TIGER 미국나스닥100',
+                    '133690.KS': 'TIGER 미국S&P500',
+                    '360750.KS': 'TIGER 미국테크TOP10 INDXX',
+                    '273130.KS': 'KODEX 종합채권(AA-이상)액티브',
+                    '251340.KS': 'KODEX 미국채울트라30년선물(H)',
+                    '305080.KS': 'TIGER 200TR',
+                    '453810.KS': 'ACE 미국S&P500',
+                    '454580.KS': 'KODEX CD금리액티브(합성)',
+                    '105010.KS': 'TIGER 라틴35',
+                    '245350.KS': 'TIGER 유로스탁스배당30',
+                    '292150.KS': 'TIGER 코리아TOP10',
+                    '379810.KS': 'KODEX 미국나스닥100TR',
+                    '394670.KS': 'TIGER 글로벌리튬&2차전지SOLACTIVE(합성)',
+                    '474800.KS': 'KIWOOM 미국동합에너지'
+                }
+                if ticker_clean in kr_etf_map:
+                    name = kr_etf_map[ticker_clean]
             
         return {
             'ticker': ticker_clean,
@@ -301,13 +348,13 @@ def fetch_ticker_data(ticker_symbol):
     except Exception as e:
         return None
 
-# 6. 세션 상태 초기화 및 영구 보존 데이터 자동 연동
+# 7. 세션 상태 초기화 및 영구 보존 데이터 자동 연동
 if 'portfolio' not in st.session_state or 'cash' not in st.session_state:
     df_saved, cash_saved = load_my_portfolio()
     st.session_state.portfolio = df_saved
     st.session_state.cash = cash_saved
 
-# 7. 포트폴리오 히스토리 저장 함수
+# 8. 포트폴리오 히스토리 저장 함수
 def save_portfolio_history(total_wealth, cash, stock_value):
     today_str = datetime.today().strftime('%Y-%m-%d')
     new_entry = {
@@ -337,7 +384,7 @@ def save_portfolio_history(total_wealth, cash, stock_value):
         
     df_hist.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
 
-# 7.2. 서버 공유 가이드 저장 함수
+# 8.2. 서버 공유 가이드 저장 함수
 def save_shared_guide(publisher, title, content):
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
     post_id = int(datetime.now().timestamp() * 1000) # 고유 ID로 타임스탬프 사용
@@ -361,26 +408,24 @@ def save_shared_guide(publisher, title, content):
     df_shared = pd.concat([df_shared, pd.DataFrame([new_post])], ignore_index=True)
     df_shared.to_csv(SHARED_GUIDES_FILE, index=False, encoding='utf-8-sig')
 
-# 8. UI 타이틀
+# 9. UI 타이틀
 st.markdown('<div class="app-header">📱 ETF 리밸런싱 계산기</div>', unsafe_allow_html=True)
 st.markdown('<div class="app-subtitle">모바일 최적화 자산배분 플래너 (KODEX, TIGER 등 국내 ETF)</div>', unsafe_allow_html=True)
 
-# 9. 실시간 주가 새로고침 트리거
+# 10. 실시간 주가 새로고침 트리거
 def refresh_prices():
     updated_portfolio = st.session_state.portfolio.copy()
     for index, row in updated_portfolio.iterrows():
         res = fetch_ticker_data(row['티커'])
         if res:
             updated_portfolio.at[index, '현재가'] = res['price']
-            # 기존 종목명이 티커 번호와 같거나 비어있던 경우 한글명 자동 보정
-            if row['종목명'] == row['티커'] or row['종목명'].strip() == "":
-                updated_portfolio.at[index, '종목명'] = res['name']
+            updated_portfolio.at[index, '종목명'] = res['name']
     st.session_state.portfolio = updated_portfolio
     # 수정한 최신 현재가를 JSON 영구 파일에도 백그라운드 반영
     save_my_portfolio(updated_portfolio, st.session_state.cash)
     st.success("🔄 현재 주가 데이터를 업데이트했습니다!")
 
-# 10. 데이터 전처리 및 계산 로직 호출
+# 11. 데이터 전처리 및 계산 로직 호출
 def get_metrics_and_calculations():
     df = st.session_state.portfolio.copy()
     cash = st.session_state.cash
@@ -417,7 +462,7 @@ if total_wealth > 0:
     if not already_saved:
         save_portfolio_history(total_wealth, current_cash, total_etfs)
 
-# 11. 상단 요약 영역 (Summary Cards)
+# 12. 상단 요약 영역 (Summary Cards)
 col1, col2 = st.columns(2)
 with col1:
     st.metric(
@@ -440,7 +485,7 @@ if abs(target_sum - 100.0) > 0.05:
 
 st.write("---")
 
-# 12. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 및 공유피드 탭 추가)
+# 13. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 및 공유피드 탭 추가)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔹 자산 입력", 
     "📊 비중 차트", 
@@ -732,7 +777,7 @@ with tab3:
                     'text': f"🛒 **{diff_q}주 추가 매수**",
                     'class': 'action-card',
                     'badge': '<span class="badge-buy">추가 매수</span>',
-                    'etf': etf_header_text,
+                    'etf': f"<span>{etf_name} ({pure_code}) {copy_btn_html}</span>",
                     'details': f"현재 {row['보유수량']}주 ➔ 목표 {row['목표수량']}주<br>예상 거래 금액: <b>{trade_value:,.0f} 원</b> (현재가: {price:,.0f}원)"
                 })
                 total_required_cash += trade_value
@@ -742,7 +787,7 @@ with tab3:
                     'text': f"✂️ **{abs(diff_q)}주 매도**",
                     'class': 'action-card action-sell',
                     'badge': '<span class="badge-sell">축소 매도</span>',
-                    'etf': etf_header_text,
+                    'etf': f"<span>{etf_name} ({pure_code}) {copy_btn_html}</span>",
                     'details': f"현재 {row['보유수량']}주 ➔ 목표 {row['목표수량']}주<br>예상 확보 금액: <b>{trade_value:,.0f} 원</b> (현재가: {price:,.0f}원)"
                 })
                 total_required_cash -= trade_value  # 매도는 현금 유입
@@ -752,7 +797,7 @@ with tab3:
                     'text': "🔍 **변동 없음 (유지)**",
                     'class': 'action-card action-keep',
                     'badge': '<span class="badge-keep">비중 유지</span>',
-                    'etf': etf_header_text,
+                    'etf': f"<span>{etf_name} ({pure_code}) {copy_btn_html}</span>",
                     'details': f"현재 {row['보유수량']}주 ➔ 목표 {row['목표수량']}주<br>현재가: {price:,.0f}원"
                 })
 
@@ -781,7 +826,7 @@ with tab3:
             st.markdown(f"""
             <div class="{plan['class']}">
                 <div class="action-header">
-                    <span>{plan['etf']}</span>
+                    {plan['etf']}
                     {plan['badge']}
                 </div>
                 <div style="font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 6px;">
@@ -795,7 +840,7 @@ with tab3:
             
         st.success("🎉 리밸런싱 결과가 계산되었습니다! 모바일 MTS 앱을 실행하여 주문을 넣어주세요.")
         
-        # --- [신규 기능] 실제 MTS 주문 결과를 자산에 일괄 동기화하는 확정 버튼 ---
+        # --- 실제 MTS 주문 결과를 자산에 일괄 동기화하는 확정 버튼 ---
         st.write("")
         if st.button("✅ MTS 주문 완료 및 내 자산에 반영", type="primary", use_container_width=True, key="apply_rebalance_action", help="클릭 시 현재 수량과 예수금이 계산된 목표 수량 및 잔고로 자동 갱신되며 영구 저장됩니다."):
             # 1. 보유 수량을 목표 수량으로 동기화
@@ -823,7 +868,12 @@ with tab3:
         shared_guide_text += "[주문 수행 목록]\n"
         for plan in action_plans:
             clean_details = plan['details'].replace("<b>", "").replace("</b>", "").replace("<br>", "\n  └ ")
-            shared_guide_text += f"- {plan['etf']} -> {plan['text']}\n  └ {clean_details}\n"
+            # pure_code와 copy_btn_html을 걷어내고 순수 이름만 매칭
+            clean_etf_title = plan['etf'].replace("<span>", "").replace("</span>", "")
+            # 버튼 태그 걷어내기
+            if "<button" in clean_etf_title:
+                clean_etf_title = clean_etf_title.split("<button")[0].strip()
+            shared_guide_text += f"- {clean_etf_title} -> {plan['text']}\n  └ {clean_details}\n"
 
         # --- 서버 업로드 인터페이스 폼 ---
         st.write("---")
