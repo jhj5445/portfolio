@@ -3,6 +3,7 @@ import sys
 import ssl
 import urllib3
 import os
+import json
 
 # SSL 경고 무시 및 SSL 기본 컨텍스트 변경
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -173,8 +174,49 @@ button[data-baseweb="tab"][aria-selected="true"] {
 # 3. 파일 관련 상수 정의
 HISTORY_FILE = "portfolio_history.csv"
 SHARED_GUIDES_FILE = "shared_guides.csv"
+PORTFOLIO_FILE = "my_portfolio.json" # 내 포트폴리오 설정 영구 저장 파일
 
-# 4. yfinance 주가 캐싱 함수
+# 4. 내 포트폴리오 파일 로드 및 저장 헬퍼 함수
+def load_my_portfolio():
+    """
+    서버 파일 시스템에 저장된 포트폴리오 현황을 불러옵니다.
+    존재하지 않을 경우 기본 템플릿 데이터를 생성하여 반환합니다.
+    """
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            with open(PORTFOLIO_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            df = pd.DataFrame(data['portfolio'])
+            # 데이터 타입 강제 바인딩 (수치 연산 안정성)
+            df['목표비중'] = df['목표비중'].astype(float)
+            df['보유수량'] = df['보유수량'].astype(int)
+            df['현재가'] = df['현재가'].astype(int)
+            return df, int(data['cash'])
+        except Exception as e:
+            pass
+            
+    # 기본 구성 템플릿
+    default_df = pd.DataFrame([
+        {'종목명': 'KODEX 200', '티커': '069500.KS', '현재가': 35600, '보유수량': 10, '목표비중': 40.0},
+        {'종목명': 'TIGER 미국나스닥100', '티커': '379800.KS', '현재가': 15400, '보유수량': 40, '목표비중': 60.0}
+    ])
+    return default_df, 1000000
+
+def save_my_portfolio(df, cash):
+    """
+    현재 설정된 예수금 및 자산 수량을 JSON 형태로 영구 기록합니다.
+    """
+    data = {
+        'cash': int(cash),
+        'portfolio': df.to_dict(orient='records')
+    }
+    try:
+        with open(PORTFOLIO_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        pass
+
+# 5. yfinance 주가 캐싱 함수
 @st.cache_data(ttl=3600)  # 1시간 동안 가격 데이터 캐싱
 def fetch_ticker_data(ticker_symbol):
     """
@@ -223,18 +265,13 @@ def fetch_ticker_data(ticker_symbol):
     except Exception as e:
         return None
 
-# 5. 세션 상태 초기화 (Session State)
-if 'portfolio' not in st.session_state:
-    # 기본 포트폴리오 템플릿 - 비중 값을 실수(float)로 초기화하여 소수점 입력 호환성 확보
-    st.session_state.portfolio = pd.DataFrame([
-        {'종목명': 'KODEX 200', '티커': '069500.KS', '현재가': 35600, '보유수량': 10, '목표비중': 40.0},
-        {'종목명': 'TIGER 미국나스닥100', '티커': '379800.KS', '현재가': 15400, '보유수량': 40, '목표비중': 60.0}
-    ])
+# 6. 세션 상태 초기화 및 영구 보존 데이터 자동 연동
+if 'portfolio' not in st.session_state or 'cash' not in st.session_state:
+    df_saved, cash_saved = load_my_portfolio()
+    st.session_state.portfolio = df_saved
+    st.session_state.cash = cash_saved
 
-if 'cash' not in st.session_state:
-    st.session_state.cash = 1000000  # 가용 예수금 기본값 100만원
-
-# 6. 포트폴리오 히스토리 저장 함수
+# 7. 포트폴리오 히스토리 저장 함수
 def save_portfolio_history(total_wealth, cash, stock_value):
     today_str = datetime.today().strftime('%Y-%m-%d')
     new_entry = {
@@ -264,7 +301,7 @@ def save_portfolio_history(total_wealth, cash, stock_value):
         
     df_hist.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
 
-# 6.2. 서버 공유 가이드 저장 함수
+# 7.2. 서버 공유 가이드 저장 함수
 def save_shared_guide(publisher, title, content):
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
     post_id = int(datetime.now().timestamp() * 1000) # 고유 ID로 타임스탬프 사용
@@ -288,11 +325,11 @@ def save_shared_guide(publisher, title, content):
     df_shared = pd.concat([df_shared, pd.DataFrame([new_post])], ignore_index=True)
     df_shared.to_csv(SHARED_GUIDES_FILE, index=False, encoding='utf-8-sig')
 
-# 7. UI 타이틀
+# 8. UI 타이틀
 st.markdown('<div class="app-header">📱 ETF 리밸런싱 계산기</div>', unsafe_allow_html=True)
 st.markdown('<div class="app-subtitle">모바일 최적화 자산배분 플래너 (KODEX, TIGER 등 국내 ETF)</div>', unsafe_allow_html=True)
 
-# 8. 실시간 주가 새로고침 트리거
+# 9. 실시간 주가 새로고침 트리거
 def refresh_prices():
     updated_portfolio = st.session_state.portfolio.copy()
     for index, row in updated_portfolio.iterrows():
@@ -303,9 +340,11 @@ def refresh_prices():
             if row['종목명'] == row['티커'] or row['종목명'].strip() == "":
                 updated_portfolio.at[index, '종목명'] = res['name']
     st.session_state.portfolio = updated_portfolio
+    # 수정한 최신 현재가를 JSON 영구 파일에도 백그라운드 반영
+    save_my_portfolio(updated_portfolio, st.session_state.cash)
     st.success("🔄 현재 주가 데이터를 업데이트했습니다!")
 
-# 9. 데이터 전처리 및 계산 로직 호출
+# 10. 데이터 전처리 및 계산 로직 호출
 def get_metrics_and_calculations():
     df = st.session_state.portfolio.copy()
     cash = st.session_state.cash
@@ -328,7 +367,21 @@ def get_metrics_and_calculations():
 
 df_calc, current_cash, total_etfs, total_wealth, target_sum = get_metrics_and_calculations()
 
-# 10. 상단 요약 영역 (Summary Cards)
+# --- 백그라운드 자동 히스토리 아카이빙 (오늘 자 기록이 유효하고 파일에 없을 때 자동 누적) ---
+if total_wealth > 0:
+    today_str = datetime.today().strftime('%Y-%m-%d')
+    already_saved = False
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df_hist_check = pd.read_csv(HISTORY_FILE)
+            if today_str in df_hist_check['Date'].astype(str).values:
+                already_saved = True
+        except Exception:
+            pass
+    if not already_saved:
+        save_portfolio_history(total_wealth, current_cash, total_etfs)
+
+# 11. 상단 요약 영역 (Summary Cards)
 col1, col2 = st.columns(2)
 with col1:
     st.metric(
@@ -351,7 +404,7 @@ if abs(target_sum - 100.0) > 0.05:
 
 st.write("---")
 
-# 11. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 및 공유피드 탭 추가)
+# 12. 탭 인터페이스 (모바일 스크롤 최소화 전략 + 히스토리 및 공유피드 탭 추가)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔹 자산 입력", 
     "📊 비중 차트", 
@@ -375,6 +428,8 @@ with tab1:
     )
     if new_cash != st.session_state.cash:
         st.session_state.cash = new_cash
+        # 예수금 수정 즉시 영구 저장 연동
+        save_my_portfolio(st.session_state.portfolio, new_cash)
         st.rerun()
 
     st.markdown("#### 📈 포트폴리오 종목 관리")
@@ -406,10 +461,13 @@ with tab1:
                         '보유수량': 0,
                         '목표비중': 0.0 # float형 기본값
                     }
-                    st.session_state.portfolio = pd.concat([
+                    updated_df = pd.concat([
                         st.session_state.portfolio, 
                         pd.DataFrame([new_row])
                     ], ignore_index=True)
+                    st.session_state.portfolio = updated_df
+                    # 추가 즉시 영구 보존 동기화
+                    save_my_portfolio(updated_df, st.session_state.cash)
                     st.success(f"✅ {res['name']} ({res['ticker']}) 추가 완료!")
                     st.rerun()
             else:
@@ -436,9 +494,10 @@ with tab1:
         num_rows="fixed" # 행 추가는 상단 폼에서, 수정만 테이블에서 수행하도록 고정
     )
     
-    # 세션 상태 업데이트 (수정사항 즉시 반영)
+    # 세션 상태 업데이트 및 값 변경 즉시 영구 저장 파일로 백그라운드 연동 (수동 저장 불필요)
     if not edited_df.equals(st.session_state.portfolio):
         st.session_state.portfolio = edited_df
+        save_my_portfolio(edited_df, st.session_state.cash)
         st.rerun()
 
     # 4) 종목 삭제 및 주가 새로고침 액션 버튼
@@ -457,20 +516,31 @@ with tab1:
         )
         if delete_target != "선택 안 함":
             if st.button("🗑️ 선택 종목 삭제", use_container_width=True, key="delete_etf_btn"):
-                st.session_state.portfolio = st.session_state.portfolio[st.session_state.portfolio['종목명'] != delete_target].reset_index(drop=True)
+                updated_df = st.session_state.portfolio[st.session_state.portfolio['종목명'] != delete_target].reset_index(drop=True)
+                st.session_state.portfolio = updated_df
+                # 삭제 즉시 영구 저장 연동
+                save_my_portfolio(updated_df, st.session_state.cash)
                 st.success(f"{delete_target} 종목이 삭제되었습니다.")
                 st.rerun()
-                
+
+    # 5) 포트폴리오 전체 리셋 버튼 (템플릿으로 되돌리기)
     st.write("")
-    # 5) 포트폴리오 저장 버튼 추가
-    if st.button("💾 현재 포트폴리오 저장 (오늘 자 기록)", type="primary", use_container_width=True, help="오늘 자 총자산과 자산 현황을 로컬 히스토리 파일에 저장합니다.", key="save_today_btn"):
-        save_portfolio_history(total_wealth, current_cash, total_etfs)
-        st.success(f"📂 {datetime.today().strftime('%Y-%m-%d')} 자산 기록이 성공적으로 저장되었습니다! '자산 히스토리' 탭에서 변화를 확인해 보세요.")
+    if st.button("⚠️ 포트폴리오 데이터 초기화 (기본 샘플로 리셋)", type="secondary", use_container_width=True, key="reset_portfolio_btn", help="영구 저장된 모든 종목 데이터를 지우고 기본 설정으로 되돌립니다."):
+        if os.path.exists(PORTFOLIO_FILE):
+            try:
+                os.remove(PORTFOLIO_FILE)
+            except Exception:
+                pass
+        df_saved, cash_saved = load_my_portfolio()
+        st.session_state.portfolio = df_saved
+        st.session_state.cash = cash_saved
+        st.success("포트폴리오 정보가 초기화되었습니다.")
+        st.rerun()
 
     st.markdown("""
     <div class="info-box">
-    💡 <b>Tip:</b> 목표(%) 비중은 <b>소수점 첫째짜리</b>(예: 33.3%)까지 미세 조정이 가능합니다.<br>
-    현재 상태를 저장(💾)해 두시면 매일 자산 변화를 <b>'자산 히스토리'</b> 탭에서 그래프로 모니터링할 수 있습니다.
+    🔒 <b>안내:</b> 수량이나 예수금을 고치면 그 즉시 <b>자동으로 서버에 안전하게 영구 저장</b>됩니다.<br>
+    앱을 종료하거나 새로고침해도 매일 새로 기입할 필요 없이 마지막 입력 수량 그대로 실행됩니다.
     </div>
     """, unsafe_allow_html=True)
 
