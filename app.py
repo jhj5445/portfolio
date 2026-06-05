@@ -168,6 +168,42 @@ button[data-baseweb="tab"][aria-selected="true"] {
     color: #94a3b8;
     margin-top: 10px;
 }
+
+/* ==========================================
+   🚨 st.button 가시성 복구 테마 패치 🚨
+   기존 하얀버튼에 하얀글씨가 겹치는 UI 버그를 해결합니다.
+   ========================================== */
+div.stButton > button {
+    background-color: #1e293b !important; /* 어두운 슬레이트 블루 배경 */
+    color: #38bdf8 !important; /* 선명한 스카이 블루 글씨색 */
+    border: 1px solid #334155 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    padding: 8px 16px !important;
+    transition: all 0.25s ease !important;
+    width: 100% !important;
+}
+
+div.stButton > button:hover {
+    background-color: #334155 !important;
+    color: #ffffff !important; /* 호버 시 글씨는 완전히 하얀색 */
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.2) !important;
+}
+
+/* Primary 강조 버튼 커스텀 */
+div.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%) !important;
+    color: #0f172a !important; /* 글씨를 매우 짙은 다크 블루로 설정하여 명확한 대비 확보 */
+    border: none !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+div.stButton > button[kind="primary"]:hover {
+    opacity: 0.9 !important;
+    box-shadow: 0 4px 12px rgba(129, 140, 248, 0.4) !important;
+    color: #0f172a !important; /* 호버시에도 글씨 어둡게 유지 */
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -749,6 +785,26 @@ with tab3:
             
         st.success("🎉 리밸런싱 결과가 계산되었습니다! 모바일 MTS 앱을 실행하여 주문을 넣어주세요.")
         
+        # --- [신규 기능] 실제 MTS 주문 결과를 자산에 일괄 동기화하는 확정 버튼 ---
+        st.write("")
+        if st.button("✅ MTS 주문 완료 및 내 자산에 반영", type="primary", use_container_width=True, key="apply_rebalance_action", help="클릭 시 현재 수량과 예수금이 계산된 목표 수량 및 잔고로 자동 갱신되며 영구 저장됩니다."):
+            # 1. 보유 수량을 목표 수량으로 동기화
+            updated_portfolio = st.session_state.portfolio.copy()
+            updated_portfolio['보유수량'] = df_calc['목표수량']
+            st.session_state.portfolio = updated_portfolio
+            
+            # 2. 가용 예수금 갱신
+            st.session_state.cash = final_estimated_cash
+            
+            # 3. 내 포트폴리오 JSON 영구 갱신
+            save_my_portfolio(updated_portfolio, final_estimated_cash)
+            
+            # 4. 자산 성장 히스토리(csv)에도 오늘 자 최종 동기화 상태로 갱신 저장
+            save_portfolio_history(total_wealth, final_estimated_cash, final_used_etfs_value)
+            
+            st.success("🎉 리밸런싱 실행 결과가 내 자산에 완벽하게 반영되어 영구 저장되었습니다!")
+            st.rerun()
+
         # --- 서버 공지용 공유 가이드 텍스트 자동 빌드 ---
         shared_guide_text = f"📋 [포트폴리오 리밸런싱 지침]\n"
         shared_guide_text += f"• 생성 시점: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
@@ -765,7 +821,7 @@ with tab3:
             pub_name = st.text_input("👤 작성자 이름", value="공식 어드바이저", max_chars=15, key="publisher_name_input")
             pub_title = st.text_input("✍️ 공지 제목", value=f"{datetime.today().strftime('%m/%d')} 포트폴리오 리밸런싱 가이드", max_chars=40, key="publish_title_input")
             
-            if st.button("🚀 공유 피드에 공지하기", type="primary", use_container_width=True, key="share_submit_btn"):
+            if st.button("🚀 공유 피드에 공지하기", type="secondary", use_container_width=True, key="share_submit_btn"):
                 save_shared_guide(pub_name, pub_title, shared_guide_text)
                 st.success("📣 성공적으로 공유 가이드(Feed) 탭에 업로드되었습니다!")
                 st.rerun()
